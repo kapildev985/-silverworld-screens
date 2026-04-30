@@ -869,8 +869,12 @@ async function buildEl(item) {
     wrap.className = 'vid-wrap';
 
     const video = document.createElement('video');
-    // Drive API streaming URL — works for publicly shared files
-    video.src = `https://www.googleapis.com/drive/v3/files/${item.id}?alt=media&key=${CFG.apiKey}`;
+    // Primary URL: uc?export=download bypasses Google Drive's 25 MB virus-scan
+    // warning that blocks the direct API stream for larger video files.
+    // The browser follows the redirect chain and streams the real video bytes.
+    const driveDirectUrl  = `https://drive.google.com/uc?export=download&id=${item.id}&confirm=t`;
+    const driveApiUrl     = `https://www.googleapis.com/drive/v3/files/${item.id}?alt=media&key=${CFG.apiKey}`;
+    video.src = driveDirectUrl;
     video.muted       = true;   // muted = autoplay allowed without gesture
     video.autoplay    = true;
     video.loop        = false;  // slideshow timer advances after duration
@@ -890,11 +894,20 @@ async function buildEl(item) {
       video.play().catch(() => {});
     }, { once: true });
 
-    // Error fallback — show a simple message instead of blank black
+    // On first error, retry with the API URL before giving up
+    let _videoRetried = false;
     video.addEventListener('error', () => {
+      if (!_videoRetried) {
+        _videoRetried = true;
+        console.warn('[Player] Primary video URL failed, trying API URL:', item.name);
+        video.src = driveApiUrl;
+        video.load();
+        return;
+      }
+      // Both URLs failed — show an informative message
       wrap.style.cssText = 'display:flex;align-items:center;justify-content:center;';
       wrap.innerHTML = `<p style="color:rgba(255,255,255,.35);font-size:14px;text-align:center;">
-        ▶ ${item.name}<br><span style="font-size:11px;opacity:.6;">Unable to play — check Drive sharing settings</span></p>`;
+        ▶ ${item.name}<br><span style="font-size:11px;opacity:.6;">Unable to play — make sure the video/ folder is shared publicly in Drive</span></p>`;
     }, { once: true });
 
     wrap.appendChild(video);
