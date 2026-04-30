@@ -154,6 +154,26 @@
     }
     #toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+    /* ── Background-sync HUD (bottom-right) ── */
+    #sync-hud {
+      position: fixed; bottom: 18px; right: 18px; z-index: 50;
+      background: rgba(0,0,0,.65); backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,.1);
+      padding: 5px 14px; border-radius: 20px;
+      color: rgba(255,255,255,.7); font-size: 11px;
+      display: none; align-items: center; gap: 8px;
+      pointer-events: none;
+    }
+    #sync-hud.on { display: flex; }
+    #sync-hud-bar {
+      width: 60px; height: 3px;
+      background: rgba(255,255,255,.15); border-radius: 2px; overflow: hidden;
+    }
+    #sync-hud-fill {
+      height: 100%; background: #4f8ef7; border-radius: 2px;
+      transition: width .3s;
+    }
+
     /* ── Audio HUD (bottom-left) ── */
     #audio-hud {
       position: fixed; bottom: 18px; left: 18px;
@@ -249,6 +269,12 @@
   <div id="eq-track"></div>
 </div>
 <button id="audio-unlock" onclick="AudioPlayer.unlock()">🔊 Tap to enable audio</button>
+
+<!-- Background-sync HUD — tiny corner pill, shown while silently downloading new content -->
+<div id="sync-hud">
+  ↓ Syncing
+  <div id="sync-hud-bar"><div id="sync-hud-fill" style="width:0%"></div></div>
+</div>
 
 <script>
 /* ═══════════════════════════════════════════════════════════
@@ -521,42 +547,64 @@ async function buildPlaylist() {
    Uses Drive thumbnail URL — works CORS-free for shared files.
    Videos are NOT pre-downloaded (played via iframe embed).
    ═══════════════════════════════════════════════════════════ */
-async function syncImages(items) {
-  const imgs = items.filter(i => i.type === 'image');
+// silent=true → keep current slideshow playing, show tiny corner HUD instead of
+//               full-screen sync panel. Used during background refresh.
+async function syncImages(playlist, silent = false) {
+  const imgs = playlist.filter(i => i.type === 'image');
   if (!imgs.length) return;
 
-  showPanel('p-sync');
-  let done = 0;
+  if (silent) {
+    // Tiny bottom-right pill — screen stays live
+    document.getElementById('sync-hud').classList.add('on');
+    document.getElementById('sync-hud-fill').style.width = '0%';
+  } else {
+    showPanel('p-sync');
+  }
 
   for (let i = 0; i < imgs.length; i++) {
     const item = imgs[i];
-    setSyncUI(item.name, i + 1, imgs.length);
+
+    if (!silent) setSyncUI(item.name, i + 1, imgs.length);
 
     // Skip if we already have the latest version
     const cached = await IDB.get('blobs', item.id);
-    if (cached?.mod === item.mod) { done++; continue; }
+    if (cached?.mod === item.mod) {
+      if (silent) {
+        document.getElementById('sync-hud-fill').style.width =
+          ((i + 1) / imgs.length * 100) + '%';
+      }
+      continue;
+    }
 
     try {
       const blob = await fetchBlob(
         `https://drive.google.com/thumbnail?id=${item.id}&sz=w4096`,
         pct => {
           const overall = (i + pct) / imgs.length * 100;
-          document.getElementById('bar-fill').style.width = overall + '%';
+          if (silent) {
+            document.getElementById('sync-hud-fill').style.width = overall + '%';
+          } else {
+            document.getElementById('bar-fill').style.width = overall + '%';
+          }
         }
       );
       await IDB.set('blobs', { id: item.id, blob, mime: blob.type, mod: item.mod });
     } catch (e) {
       console.warn('[Player] Cache failed for', item.name, '—', e.message);
-      // Store null blob so we fall back to Drive URL during playback
-      await IDB.set('blobs', { id: item.id, blob: null, mime: 'image/jpeg', mod: item.mod, fallback: `https://drive.google.com/thumbnail?id=${item.id}&sz=w4096` });
+      await IDB.set('blobs', { id: item.id, blob: null, mime: 'image/jpeg', mod: item.mod,
+        fallback: `https://drive.google.com/thumbnail?id=${item.id}&sz=w4096` });
     }
-    done++;
   }
 
   // Remove blobs for items no longer in playlist
   const live = new Set(imgs.map(x => x.id));
   for (const k of await IDB.keys('blobs')) {
     if (!live.has(k)) await IDB.del('blobs', k);
+  }
+
+  if (silent) {
+    document.getElementById('sync-hud').classList.remove('on');
+    document.getElementById('sync-hud-fill').style.width = '0%';
   }
 }
 
@@ -565,30 +613,39 @@ async function syncImages(items) {
    Downloads audio files via Drive Files API (works CORS-free
    for publicly shared files via googleapis.com endpoint).
    ═══════════════════════════════════════════════════════════ */
-async function syncAudio(audioFiles) {
+async function syncAudio(audioFiles, silent = false) {
   if (!audioFiles.length) {
-    // Remove any stale audio blobs
     for (const k of await IDB.keys('audio')) await IDB.del('audio', k);
     return;
   }
 
-  document.getElementById('sy-title').textContent = '🔊 Downloading Audio';
-  document.getElementById('sy-sub').textContent   = 'Saving audio to device — plays offline after this';
-  showPanel('p-sync');
+  if (silent) {
+    document.getElementById('sync-hud').classList.add('on');
+    document.getElementById('sync-hud-fill').style.width = '0%';
+  } else {
+    document.getElementById('sy-title').textContent = '🔊 Downloading Audio';
+    document.getElementById('sy-sub').textContent   = 'Saving audio to device — plays offline after this';
+    showPanel('p-sync');
+  }
 
   for (let i = 0; i < audioFiles.length; i++) {
     const f = audioFiles[i];
-    setSyncUI(f.name, i + 1, audioFiles.length);
+    if (!silent) setSyncUI(f.name, i + 1, audioFiles.length);
 
     const cached = await IDB.get('audio', f.id);
-    if (cached?.mod === f.modifiedTime) continue; // already up to date
+    if (cached?.mod === f.modifiedTime) {
+      if (silent) document.getElementById('sync-hud-fill').style.width =
+        ((i + 1) / audioFiles.length * 100) + '%';
+      continue;
+    }
 
     try {
       const blob = await fetchBlob(
         `https://www.googleapis.com/drive/v3/files/${f.id}?alt=media&key=${CFG.apiKey}`,
         pct => {
           const overall = (i + pct) / audioFiles.length * 100;
-          document.getElementById('bar-fill').style.width = overall + '%';
+          if (silent) document.getElementById('sync-hud-fill').style.width = overall + '%';
+          else        document.getElementById('bar-fill').style.width = overall + '%';
         }
       );
       await IDB.set('audio', { id: f.id, blob, name: f.name, mod: f.modifiedTime });
@@ -603,9 +660,14 @@ async function syncAudio(audioFiles) {
     if (!live.has(k)) await IDB.del('audio', k);
   }
 
-  // Reset sync panel title for potential subsequent image sync
-  document.getElementById('sy-title').textContent = '📥 Downloading Content';
-  document.getElementById('sy-sub').textContent   = 'Saving media to device — plays offline after this';
+  if (silent) {
+    document.getElementById('sync-hud').classList.remove('on');
+    document.getElementById('sync-hud-fill').style.width = '0%';
+  } else {
+    // Reset sync panel title for potential subsequent image sync
+    document.getElementById('sy-title').textContent = '📥 Downloading Content';
+    document.getElementById('sy-sub').textContent   = 'Saving media to device — plays offline after this';
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -926,17 +988,29 @@ async function refresh() {
     if (!mediaChanged && !audioChanged) return; // Nothing changed
 
     if (mediaChanged) {
-      await syncImages(fresh);
+      const wasPlaying = items.length > 0;
+
+      // Download new content.  If already playing, do it silently in the
+      // background so the screen never goes blank.
+      await syncImages(fresh, wasPlaying);
+
       await IDB.set('meta', { k: 'sig',      v: sig });
       await IDB.set('meta', { k: 'playlist', v: fresh });
-      const wasPlaying = items.length > 0;
-      clearTimeout(slideTimer);
-      await startPlayback(fresh, false);
-      if (wasPlaying) toast('✓ Content updated');
+
+      if (wasPlaying) {
+        // Swap the playlist in-place — current slide finishes naturally,
+        // then the next advance picks from the updated list.
+        items = fresh;
+        toast('✓ Content updated');
+      } else {
+        // Nothing was on screen yet — start fresh.
+        clearTimeout(slideTimer);
+        await startPlayback(fresh, false);
+      }
     }
 
     if (audioChanged) {
-      await syncAudio(freshAudio);
+      await syncAudio(freshAudio, /*silent=*/items.length > 0);
       await IDB.set('meta', { k: 'audioSig', v: audioSig });
       await AudioPlayer.reload(freshAudio);
       if (freshAudio.length) toast('🔊 Audio updated');
