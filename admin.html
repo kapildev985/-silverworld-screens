@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Silverworld Screens — Admin</title>
+  <style>
+    :root {
+      --bg:#0c0c0c; --s1:#161616; --s2:#1d1d1d; --s3:#242424;
+      --border:rgba(255,255,255,0.08); --border2:rgba(255,255,255,0.05);
+      --text:#f0f0f0; --dim:#888; --dim2:#555;
+      --accent:#4f8ef7; --accent2:#3a7be0;
+      --green:#3ecf8e; --red:#f55; --yellow:#f0c050; --purple:#a78bfa;
+      --r:10px; --r2:7px;
+    }
+    *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
+    html,body{min-height:100%;background:var(--bg);color:var(--text);
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+      font-size:14px;line-height:1.5;}
+    a{color:var(--accent);}
+
+    /* ── Header ── */
+    header{
+      height:58px;padding:0 24px;
+      background:var(--s1);border-bottom:1px solid var(--border);
+      display:flex;align-items:center;justify-content:space-between;
+      position:sticky;top:0;z-index:40;
+    }
+    .logo{display:flex;align-items:center;gap:10px;}
+    .logo-icon{font-size:20px;}
+    .logo-name{font-size:16px;font-weight:700;letter-spacing:-0.02em;}
+    .logo-tag{font-size:11px;color:var(--dim);margin-left:2px;font-weight:400;}
+    .conn-dot{
+      width:8px;height:8px;border-radius:50%;background:var(--dim2);
+      display:inline-block;margin-right:6px;
+    }
+    .conn-dot.ok{background:var(--green);}
+    .conn-dot.err{background:var(--red);}
+    #conn-text{font-size:13px;color:var(--dim);}
+
+    /* ── Buttons ── */
+    .btn{
+      display:inline-flex;align-items:center;gap:6px;
+      padding:8px 16px;border-radius:var(--r2);border:none;cursor:pointer;
+      font-size:13px;font-weight:500;transition:.15s;white-space:nowrap;
+    }
+    .btn-primary{background:var(--accent);color:#fff;}
+    .btn-primary:hover{background:var(--accent2);}
+    .btn-ghost{background:transparent;color:var(--text);border:1px solid var(--border);}
+    .btn-ghost:hover{background:var(--s2);}
+    .btn-sm{padding:5px 12px;font-size:12px;}
+    .btn-xs{padding:3px 8px;font-size:11px;border-radius:5px;}
+    .btn:disabled{opacity:.35;cursor:default;pointer-events:none;}
+
+    /* ── Layout ── */
+    main{max-width:1060px;margin:0 auto;padding:24px 20px;display:flex;flex-direction:column;gap:20px;}
+
+    /* ── Card ── */
+    .card{background:var(--s1);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;}
+    .card-hd{
+      padding:13px 18px;border-bottom:1px solid var(--border);
+      display:flex;align-items:center;justify-content:space-between;gap:12px;
+    }
+    .card-hd h2{font-size:13px;font-weight:600;}
+    .card-body{padding:18px;}
+
+    /* ── Setup card ── */
+    .setup-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+    .field label{display:block;font-size:11px;font-weight:600;text-transform:uppercase;
+      letter-spacing:.06em;color:var(--dim);margin-bottom:5px;}
+    .field input{
+      width:100%;padding:9px 12px;
+      background:var(--s2);border:1px solid var(--border);
+      border-radius:var(--r2);color:var(--text);font-size:13px;outline:none;
+      transition:border-color .15s;
+    }
+    .field input:focus{border-color:var(--accent);}
+    .field .hint{font-size:11px;color:var(--dim2);margin-top:5px;line-height:1.5;}
+
+    #setup-err{font-size:13px;color:var(--red);margin-top:10px;display:none;}
+
+    /* ── Settings row ── */
+    .settings-row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;}
+    .settings-row .field{flex:1;min-width:100px;}
+    .settings-row .field input,
+    .settings-row .field select{
+      width:100%;padding:7px 10px;
+      background:var(--s2);border:1px solid var(--border);
+      border-radius:var(--r2);color:var(--text);font-size:13px;outline:none;
+    }
+
+    /* ── How-to steps ── */
+    .how-steps{display:flex;flex-direction:column;gap:0;margin-top:4px;}
+    .how-step{display:flex;gap:12px;padding:11px 0;border-bottom:1px solid var(--border2);}
+    .how-step:last-child{border-bottom:none;}
+    .how-num{
+      width:22px;height:22px;border-radius:50%;background:var(--accent);
+      color:#fff;font-size:11px;font-weight:700;
+      display:flex;align-items:center;justify-content:center;flex-shrink:0;
+    }
+    .how-body h4{font-size:12px;font-weight:600;margin-bottom:2px;}
+    .how-body p{font-size:12px;color:var(--dim);line-height:1.6;}
+    .how-body code{
+      background:var(--s3);padding:1px 5px;border-radius:4px;
+      font-size:11px;color:var(--purple);font-family:monospace;
+    }
+
+    /* ── Location grid ── */
+    #locations-grid{
+      display:grid;
+      grid-template-columns:repeat(auto-fill,minmax(300px,1fr));
+      gap:16px;
+    }
+
+    /* ── Per-location fit selector ── */
+    .loc-fit { display:flex; flex-direction:column; gap:5px; }
+    .loc-fit label {
+      font-size:10px; font-weight:600; text-transform:uppercase;
+      letter-spacing:.06em; color:var(--dim);
+    }
+    .loc-fit select {
+      width:100%; padding:6px 10px;
+      background:var(--s2); border:1px solid var(--border);
+      border-radius:var(--r2); color:var(--text); font-size:12px; outline:none;
+      cursor:pointer;
+    }
+    .loc-fit select:focus { border-color:var(--accent); }
+    .loc-fit-hint {
+      font-size:11px; color:var(--dim2); line-height:1.4;
+    }
+
+    /* Push-config banner */
+    .loc-push {
+      display:flex; align-items:center; gap:8px;
+      background:rgba(79,142,247,.08); border:1px solid rgba(79,142,247,.2);
+      border-radius:6px; padding:8px 10px; font-size:11px; color:var(--dim);
+      line-height:1.5;
+    }
+    .loc-push strong { color:var(--text); }
+
+    /* ── Location card ── */
+    .loc-card{
+      background:var(--s1);border:1px solid var(--border);
+      border-radius:var(--r);overflow:hidden;
+      display:flex;flex-direction:column;
+      transition:border-color .2s;
+    }
+    .loc-card:hover{border-color:rgba(255,255,255,0.15);}
+
+    .loc-thumb{
+      height:130px;overflow:hidden;position:relative;
+      background:var(--s3);display:flex;align-items:center;justify-content:center;
+    }
+    .loc-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+    .loc-thumb .thumb-placeholder{font-size:36px;color:var(--dim2);}
+    .loc-badge{
+      position:absolute;top:8px;left:8px;
+      background:rgba(0,0,0,0.7);backdrop-filter:blur(6px);
+      border-radius:6px;padding:3px 8px;font-size:11px;font-weight:600;
+      letter-spacing:.04em;
+    }
+    .loc-warn{
+      position:absolute;bottom:8px;right:8px;
+      background:rgba(240,192,80,0.9);color:#000;
+      border-radius:5px;padding:2px 7px;font-size:10px;font-weight:700;
+    }
+
+    .loc-body{padding:14px;flex:1;display:flex;flex-direction:column;gap:10px;}
+    .loc-name{font-size:15px;font-weight:700;}
+    .loc-counts{display:flex;gap:10px;}
+    .loc-count{
+      display:flex;align-items:center;gap:5px;
+      background:var(--s2);border-radius:6px;padding:4px 10px;
+      font-size:12px;color:var(--dim);
+    }
+    .loc-count .n{color:var(--text);font-weight:600;font-size:13px;}
+
+    .loc-url{
+      background:var(--s2);border:1px solid var(--border2);border-radius:6px;
+      padding:7px 10px;font-size:11px;color:var(--dim2);font-family:monospace;
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+      transition:all .2s;
+    }
+    /* Short URL state — highlighted and readable */
+    .loc-url.short{
+      background:rgba(62,207,142,.08);
+      border-color:rgba(62,207,142,.35);
+      color:var(--green);
+      font-size:14px;font-weight:600;
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+      letter-spacing:0.01em;
+    }
+    /* Spinner inside a button */
+    .btn-spinner{
+      display:inline-block;width:12px;height:12px;
+      border:2px solid rgba(255,255,255,.25);border-top-color:#fff;
+      border-radius:50%;animation:spin .7s linear infinite;
+      vertical-align:middle;margin-right:4px;
+    }
+
+    .loc-actions{display:flex;gap:6px;flex-wrap:wrap;}
+
+    .loc-qr{
+      display:none;
+      background:white;border-radius:6px;padding:4px;
+      margin-top:2px;align-self:flex-start;
+    }
+    .loc-qr.show{display:block;}
+    .loc-qr img{display:block;width:120px;height:120px;}
+
+    /* ── Empty / loading state ── */
+    #discover-state{
+      padding:48px 20px;text-align:center;color:var(--dim);
+      display:flex;flex-direction:column;align-items:center;gap:14px;
+    }
+    #discover-state .ds-icon{font-size:40px;}
+    #discover-state h3{font-size:16px;font-weight:500;color:var(--text);}
+    #discover-state p{font-size:13px;max-width:380px;line-height:1.6;}
+    .spinner-sm{
+      width:24px;height:24px;
+      border:2px solid rgba(255,255,255,0.1);border-top-color:rgba(255,255,255,.7);
+      border-radius:50%;animation:spin .7s linear infinite;
+    }
+    @keyframes spin{to{transform:rotate(360deg);}}
+
+    /* ── Notif ── */
+    #notif{
+      position:fixed;top:66px;right:16px;
+      background:var(--s1);border:1px solid var(--border);
+      border-radius:var(--r);padding:10px 16px;
+      font-size:13px;z-index:200;box-shadow:0 4px 20px rgba(0,0,0,.5);
+      opacity:0;transform:translateY(-6px);transition:.2s;pointer-events:none;
+    }
+    #notif.show{opacity:1;transform:translateY(0);}
+    #notif.ok {border-color:rgba(62,207,142,.3);color:var(--green);}
+    #notif.bad{border-color:rgba(255,80,80,.3); color:var(--red);}
+
+    @media(max-width:600px){
+      main{padding:16px 12px;}
+      header{padding:0 14px;}
+      .setup-grid{grid-template-columns:1fr;}
+      .logo-tag{display:none;}
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <span class="logo-icon">📺</span>
+    <span class="logo-name">Silverworld Screens</span>
+    <span class="logo-tag">Admin</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;">
+    <span class="conn-dot" id="conn-dot"></span>
+    <span id="conn-text">Not connected</span>
+    <button class="btn btn-ghost btn-sm" onclick="openSettings()" id="settings-btn" style="display:none">⚙ Settings</button>
+  </div>
+</header>
+
+<main>
+
+  <!-- ── STEP 1: Setup ── -->
+  <div class="card" id="setup-card">
+    <div class="card-hd">
+      <h2>🔧 Connect to Google Drive</h2>
+      <button class="btn btn-ghost btn-sm" id="setup-toggle" onclick="toggleSetup()">Hide ▲</button>
+    </div>
+    <div id="setup-body" class="card-body">
+
+      <!-- How-to -->
+      <div class="how-steps" style="margin-bottom:18px;">
+        <div class="how-step">
+          <div class="how-num">1</div>
+          <div class="how-body">
+            <h4>Get a Google Drive API Key (free)</h4>
+            <p>Go to <a href="https://console.cloud.google.com" target="_blank">console.cloud.google.com</a> →
+              Select or create a project → <strong>APIs &amp; Services → Library</strong> → search
+              <em>"Google Drive API"</em> → Enable → then <strong>Credentials → + Create Credentials →
+              API Key</strong>. Optionally restrict it to "Drive API" for security.</p>
+          </div>
+        </div>
+        <div class="how-step">
+          <div class="how-num">2</div>
+          <div class="how-body">
+            <h4>Share "Silverworld Screens" folder publicly</h4>
+            <p>Right-click the <strong>Silverworld Screens</strong> folder in Drive →
+              <strong>Share → Anyone with the link → Viewer</strong>. The folder ID is the long
+              string in the URL: <code>drive.google.com/drive/folders/<strong>[FOLDER-ID]</strong></code>.
+              Do the same for each location folder and its <code>photo/</code>, <code>video/</code>,
+              and optional <code>audio/</code> subfolders.</p>
+          </div>
+        </div>
+        <div class="how-step">
+          <div class="how-num">3</div>
+          <div class="how-body">
+            <h4>Enter your API Key and Folder ID below</h4>
+            <p>Paste them in, click <strong>Discover Locations</strong>. Your three locations will
+              appear automatically with their photo and video counts. No other setup needed.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="setup-grid">
+        <div class="field">
+          <label>Google Drive API Key</label>
+          <input id="api-key" type="text" placeholder="AIzaSy…" autocomplete="off" spellcheck="false">
+          <div class="hint">Saved in this browser only — never sent to any server.</div>
+        </div>
+        <div class="field">
+          <label>"Silverworld Screens" Folder ID</label>
+          <input id="main-folder" type="text" placeholder="1BcDeFgHiJkLmNoPqRsTuVwXyZ" autocomplete="off" spellcheck="false">
+          <div class="hint">Paste the Folder ID from your Google Drive URL.</div>
+        </div>
+      </div>
+      <div id="setup-err"></div>
+      <div style="display:flex;gap:8px;margin-top:14px;">
+        <button class="btn btn-primary" onclick="discoverLocations()" id="discover-btn">
+          🔍 Discover Locations
+        </button>
+        <button class="btn btn-ghost" onclick="clearConfig()">Clear saved</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Settings ── -->
+  <div class="card" id="settings-card" style="display:none;">
+    <div class="card-hd">
+      <h2>⚙ Global Playback Settings</h2>
+      <span style="font-size:12px;color:var(--dim);">Applied to all screens · Image fit is set per-location below</span>
+    </div>
+    <div class="card-body">
+      <div class="settings-row">
+        <div class="field">
+          <label>Image duration (sec)</label>
+          <input id="img-dur" type="number" value="10" min="2" max="300">
+        </div>
+        <div class="field">
+          <label>Video duration (sec)</label>
+          <input id="vid-dur" type="number" value="30" min="5" max="600">
+        </div>
+        <div class="field">
+          <label>Auto-refresh (min)</label>
+          <input id="rfr" type="number" value="5" min="1" max="60">
+        </div>
+        <div class="field">
+          <label>Clock overlay</label>
+          <select id="clk">
+            <option value="0">Off</option>
+            <option value="1">On</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Audio volume (%)</label>
+          <input id="vol" type="number" value="80" min="0" max="100">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <label style="display:block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin-bottom:0;">Apply</label>
+          <button class="btn btn-primary btn-sm" onclick="discoverLocations()">
+            🔄 Re-discover &amp; Rebuild URLs
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="pushAllConfig()" id="push-all-btn" style="display:none;">
+            📤 Push to All Screens
+          </button>
+        </div>
+      </div>
+      <div style="margin-top:12px;padding:10px;background:var(--s2);border-radius:var(--r2);font-size:11px;color:var(--dim);line-height:1.6;">
+        <strong style="color:var(--text);">📡 How live config push works:</strong>
+        Click <em>Push to All Screens</em> to download a <code style="background:var(--s3);padding:1px 4px;border-radius:3px;color:var(--purple)">_swscreen_config.json</code> file.
+        Upload it to the <strong>Silverworld Screens</strong> root folder in Google Drive — all screens will apply it automatically on their next refresh cycle (within the auto-refresh interval).
+        Use <em>Push Config</em> on a location card to push settings to just that one screen.
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Locations section ── -->
+  <div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+      <div>
+        <div style="font-size:17px;font-weight:700;" id="locations-heading">Locations</div>
+        <div style="font-size:13px;color:var(--dim);margin-top:2px;" id="locations-sub">Connect to Google Drive to see your locations.</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="discoverLocations()" id="refresh-btn" style="display:none;">
+        🔄 Refresh
+      </button>
+    </div>
+    <div id="locations-grid">
+      <div id="discover-state">
+        <div class="ds-icon">📍</div>
+        <h3>No locations discovered yet</h3>
+        <p>Enter your API key and Silverworld Screens folder ID above, then click
+           <strong>Discover Locations</strong>.</p>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<div id="notif"></div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════
+   STATE
+   ═══════════════════════════════════════════════════════════ */
+let CFG = loadConfig(); // {apiKey, mainFolderId}
+let discoveredLocations = [];
+
+/* ═══════════════════════════════════════════════════════════
+   IMAGE FIT OPTIONS — professional store-screen modes
+   ═══════════════════════════════════════════════════════════ */
+const FIT_OPTIONS = [
+  {
+    value: 'cover',
+    label: 'Cover — Fill screen',
+    hint:  'Crops edges to fill every pixel. Best for landscape promotional photos on a landscape TV.',
+  },
+  {
+    value: 'contain-blur',
+    label: 'Contain + Blur BG ★',
+    hint:  'Shows the full image; blurred copy of the same image fills the empty sides. Recommended for mixed portrait/landscape content — professional digital signage look.',
+  },
+  {
+    value: 'contain',
+    label: 'Contain — Full image',
+    hint:  'Shows the entire image with black bars on empty sides. Best for product shots, menus or diagrams where edges must not be cropped.',
+  },
+  {
+    value: 'fill',
+    label: 'Stretch — Fill exactly',
+    hint:  'Stretches image to fill — will distort aspect ratio. Only use for content designed at the exact screen ratio.',
+  },
+  {
+    value: 'scale-down',
+    label: 'Scale Down — Original size',
+    hint:  'Displays at native resolution (or smaller); never upscales. Best for logos, price tags or small graphics that should not be enlarged.',
+  },
+];
+
+/* ═══════════════════════════════════════════════════════════
+   PERSISTENCE
+   ═══════════════════════════════════════════════════════════ */
+function saveConfig(c) { localStorage.setItem('sw_admin', JSON.stringify(c)); }
+function loadConfig()  {
+  try { return JSON.parse(localStorage.getItem('sw_admin')) || {}; } catch { return {}; }
+}
+function clearConfig() {
+  localStorage.removeItem('sw_admin');
+  localStorage.removeItem('sw_loc_fit');
+  localStorage.removeItem('sw_short_urls');
+  location.reload();
+}
+
+// Global playback settings (duration, refresh, clock, volume)
+function getSettings() {
+  return {
+    img: parseInt(document.getElementById('img-dur').value) || 10,
+    vid: parseInt(document.getElementById('vid-dur').value) || 30,
+    rfr: parseInt(document.getElementById('rfr').value)     || 5,
+    clk: document.getElementById('clk').value === '1',
+    vol: Math.min(100, Math.max(0, parseInt(document.getElementById('vol').value) ?? 80)) || 80,
+  };
+}
+
+// Short URLs — stored by folderId, cleared when config changes
+function getShortUrl(folderId) {
+  try { return JSON.parse(localStorage.getItem('sw_short_urls') || '{}')[folderId] || null; }
+  catch { return null; }
+}
+function saveShortUrl(folderId, url) {
+  try {
+    const all = JSON.parse(localStorage.getItem('sw_short_urls') || '{}');
+    all[folderId] = url;
+    localStorage.setItem('sw_short_urls', JSON.stringify(all));
+  } catch {}
+}
+function clearShortUrl(folderId) {
+  try {
+    const all = JSON.parse(localStorage.getItem('sw_short_urls') || '{}');
+    delete all[folderId];
+    localStorage.setItem('sw_short_urls', JSON.stringify(all));
+  } catch {}
+}
+
+// Returns the best URL for a location (short if available, full otherwise)
+function getDisplayUrl(folderId) {
+  return getShortUrl(folderId) || buildPlayerUrl(
+    discoveredLocations.find(l => l.folderId === folderId),
+    getSettings()
+  );
+}
+
+// Sanitise location name → URL-safe alias: "Main Store" → "sw-main-store"
+function toAlias(name) {
+  return 'sw-' + name.toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '') // strip accents
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .substring(0, 24);
+}
+
+// Try to create an is.gd short URL (optionally with a custom alias)
+async function callIsGd(longUrl, alias) {
+  const base = 'https://is.gd/create.php?format=json';
+  const url  = base
+    + `&url=${encodeURIComponent(longUrl)}`
+    + (alias ? `&shorturl=${encodeURIComponent(alias)}` : '');
+  const res  = await fetch(url);
+  const data = await res.json();
+  return data.shorturl || null;  // null = failed (alias taken, blacklisted, etc.)
+}
+
+async function shortenUrl(folderId) {
+  const loc = discoveredLocations.find(l => l.folderId === folderId);
+  if (!loc) return;
+
+  const btn     = document.getElementById(`shorten-btn-${folderId}`);
+  const longUrl = buildPlayerUrl(loc, getSettings());
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="btn-spinner"></span>Creating…`;
+  }
+
+  try {
+    const alias    = toAlias(loc.name);
+    // 1st attempt: custom alias (e.g. sw-main-store)
+    let shortUrl   = await callIsGd(longUrl, alias);
+
+    // 2nd attempt: alias + short folder-id suffix to avoid conflicts
+    if (!shortUrl) {
+      const suffix = folderId.slice(-4).toLowerCase();
+      shortUrl = await callIsGd(longUrl, alias + '-' + suffix);
+    }
+
+    // 3rd attempt: let is.gd pick a random alias
+    if (!shortUrl) shortUrl = await callIsGd(longUrl, '');
+
+    if (shortUrl) {
+      saveShortUrl(folderId, shortUrl);
+      updateUrlEl(folderId, shortUrl, true);
+      notify(`✓ Short URL ready: ${shortUrl}`);
+    } else {
+      notify('Could not create short URL — try again', 'bad');
+    }
+  } catch (e) {
+    notify('Short URL failed: ' + e.message, 'bad');
+  }
+
+  if (btn) {
+    btn.disabled  = false;
+    btn.innerHTML = '🔗 Short URL';
+  }
+}
+
+// Update the URL display box + QR for a location card
+function updateUrlEl(folderId, url, isShort) {
+  const el = document.getElementById(`url-${folderId}`);
+  if (el) {
+    el.textContent = url;
+    el.title       = url;
+    el.classList.toggle('short', !!isShort);
+  }
+  const qrImg = document.getElementById(`qr-${folderId}`)?.querySelector('img');
+  if (qrImg) qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(url)}`;
+}
+
+// Per-location fit (stored separately so it survives re-discovery)
+function getLocFit(folderId) {
+  try { return JSON.parse(localStorage.getItem('sw_loc_fit') || '{}')[folderId] || 'cover'; }
+  catch { return 'cover'; }
+}
+function saveLocFit(folderId, fit) {
+  try {
+    const all = JSON.parse(localStorage.getItem('sw_loc_fit') || '{}');
+    all[folderId] = fit;
+    localStorage.setItem('sw_loc_fit', JSON.stringify(all));
+  } catch {}
+}
+
+// Called when a location's fit dropdown changes
+function onFitChange(folderId, fit) {
+  saveLocFit(folderId, fit);
+  rebuildLocUrl(folderId);
+  const opt   = FIT_OPTIONS.find(o => o.value === fit);
+  const hintEl = document.getElementById(`fit-hint-${folderId}`);
+  if (hintEl && opt) hintEl.textContent = opt.hint;
+}
+
+// Rebuild and refresh the URL + QR for one location card.
+// Clears any stored short URL because the underlying config changed.
+function rebuildLocUrl(folderId) {
+  clearShortUrl(folderId);
+  const loc = discoveredLocations.find(l => l.folderId === folderId);
+  if (!loc) return;
+  const url = buildPlayerUrl(loc, getSettings());
+  updateUrlEl(folderId, url, false);
+  // Remind the user to re-create the short link
+  const btn = document.getElementById(`shorten-btn-${folderId}`);
+  if (btn) btn.innerHTML = '🔗 Short URL';
+}
+
+/* ═══════════════════════════════════════════════════════════
+   DRIVE API HELPERS
+   ═══════════════════════════════════════════════════════════ */
+async function driveList(folderId, apiKey, extra = '') {
+  const q = encodeURIComponent(`'${folderId}' in parents and trashed = false${extra}`);
+  const f = encodeURIComponent('files(id,name,mimeType,modifiedTime)');
+  const url = `https://www.googleapis.com/drive/v3/files`
+    + `?q=${q}&fields=${f}&orderBy=name&pageSize=200&key=${apiKey}`;
+  const res = await fetch(url);
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(data.error?.message || `HTTP ${res.status}`);
+  return data.files || [];
+}
+
+async function listSubfolders(folderId, apiKey) {
+  return driveList(folderId, apiKey, ` and mimeType = 'application/vnd.google-apps.folder'`);
+}
+
+async function listMedia(folderId, apiKey, type) {
+  const mimeFilter = type === 'image'
+    ? ` and mimeType contains 'image/'`
+    : type === 'audio'
+    ? ` and mimeType contains 'audio/'`
+    : ` and mimeType contains 'video/'`;
+  return driveList(folderId, apiKey, mimeFilter);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   DISCOVERY
+   ═══════════════════════════════════════════════════════════ */
+async function discoverLocations() {
+  const apiKey      = document.getElementById('api-key').value.trim();
+  const mainFolderId= document.getElementById('main-folder').value.trim();
+
+  if (!apiKey)      { showErr('Please enter your Google Drive API key.'); return; }
+  if (!mainFolderId){ showErr('Please enter the Silverworld Screens folder ID.'); return; }
+
+  document.getElementById('setup-err').style.display = 'none';
+  CFG = { apiKey, mainFolderId };
+  saveConfig(CFG);
+
+  // Show loading
+  setDiscoverState('loading', 'Discovering locations…');
+  setBadge('', '');
+  document.getElementById('discover-btn').disabled = true;
+
+  try {
+    // Step 1: list location subfolders
+    const locationFolders = await listSubfolders(mainFolderId, apiKey);
+    if (!locationFolders.length) {
+      setDiscoverState('empty', '', 'No subfolders found in the main folder. Make sure the folder is shared publicly and the ID is correct.');
+      setBadge('err', 'Error');
+      document.getElementById('discover-btn').disabled = false;
+      return;
+    }
+
+    // Step 2: for each location, find photo/video subfolders and count
+    const locations = [];
+    for (const loc of locationFolders) {
+      const subs = await listSubfolders(loc.id, apiKey);
+      const photoSub = subs.find(s => /^photos?$/i.test(s.name.trim()));
+      const videoSub = subs.find(s => /^videos?$/i.test(s.name.trim()));
+      const audioSub = subs.find(s => /^audios?$/i.test(s.name.trim()));
+
+      let photoCount = 0, videoCount = 0, audioCount = 0, firstPhotoId = null;
+      if (photoSub) {
+        const photos = await listMedia(photoSub.id, apiKey, 'image');
+        photoCount = photos.length;
+        firstPhotoId = photos[0]?.id || null;
+      }
+      if (videoSub) {
+        const videos = await listMedia(videoSub.id, apiKey, 'video');
+        videoCount = videos.length;
+      }
+      if (audioSub) {
+        const audios = await listMedia(audioSub.id, apiKey, 'audio');
+        audioCount = audios.length;
+      }
+
+      locations.push({
+        name:           loc.name,
+        folderId:       loc.id,
+        photoFolderId:  photoSub?.id  || null,
+        videoFolderId:  videoSub?.id  || null,
+        audioFolderId:  audioSub?.id  || null,
+        photoCount,
+        videoCount,
+        audioCount,
+        firstPhotoId,
+        hasPhotoSub:    !!photoSub,
+        hasVideoSub:    !!videoSub,
+        hasAudioSub:    !!audioSub,
+      });
+    }
+
+    discoveredLocations = locations;
+    renderLocations(locations);
+    setBadge('ok', `Connected · ${locations.length} location${locations.length !== 1 ? 's' : ''}`);
+
+    // Show settings + refresh + push-all buttons
+    document.getElementById('settings-card').style.display  = '';
+    document.getElementById('settings-btn').style.display   = '';
+    document.getElementById('refresh-btn').style.display    = '';
+    document.getElementById('push-all-btn').style.display   = '';
+
+    // Collapse setup card
+    const body = document.getElementById('setup-body');
+    if (body.style.display !== 'none') toggleSetup();
+
+    notify(`✓ ${locations.length} location${locations.length !== 1 ? 's' : ''} discovered`);
+  } catch (e) {
+    setDiscoverState('error', '', `Error: ${e.message}`);
+    setBadge('err', 'Error');
+    showErr(e.message);
+  }
+
+  document.getElementById('discover-btn').disabled = false;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   RENDER LOCATION CARDS
+   ═══════════════════════════════════════════════════════════ */
+function renderLocations(locations) {
+  const grid = document.getElementById('locations-grid');
+  grid.innerHTML = '';
+
+  document.getElementById('locations-heading').textContent =
+    `Locations (${locations.length})`;
+  document.getElementById('locations-sub').textContent =
+    'Each location gets its own player URL. Open it on any browser-based screen — zero config on the device.';
+
+  const s = getSettings();
+
+  locations.forEach(loc => {
+    const url    = buildPlayerUrl(loc, s);
+    const qrUrl  = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(url)}`;
+    const thumbSrc = loc.firstPhotoId
+      ? `https://drive.google.com/thumbnail?id=${loc.firstPhotoId}&sz=w400`
+      : null;
+
+    const warnings = [];
+    if (!loc.hasPhotoSub) warnings.push('No "photo" subfolder found');
+    if (!loc.hasVideoSub) warnings.push('No "video" subfolder found');
+
+    const curFit    = getLocFit(loc.folderId);
+    const curFitObj = FIT_OPTIONS.find(o => o.value === curFit) || FIT_OPTIONS[0];
+    const fitOptionsHtml = FIT_OPTIONS.map(o =>
+      `<option value="${o.value}"${o.value === curFit ? ' selected' : ''}>${esc(o.label)}</option>`
+    ).join('');
+
+    // Prefer short URL if already created for this location
+    const savedShort  = getShortUrl(loc.folderId);
+    const displayUrl  = savedShort || url;
+    const isShort     = !!savedShort;
+
+    const card = document.createElement('div');
+    card.className = 'loc-card';
+    card.innerHTML = `
+      <div class="loc-thumb">
+        ${thumbSrc
+          ? `<img src="${thumbSrc}" alt="${esc(loc.name)}" loading="lazy">`
+          : `<div class="thumb-placeholder">📍</div>`
+        }
+        <div class="loc-badge">${esc(loc.name)}</div>
+        ${warnings.length ? `<div class="loc-warn">⚠ ${esc(warnings[0])}</div>` : ''}
+      </div>
+      <div class="loc-body">
+        <div class="loc-name">📍 ${esc(loc.name)}</div>
+
+        <div class="loc-counts">
+          <div class="loc-count">🖼 <span class="n">${loc.photoCount}</span> photos</div>
+          <div class="loc-count">🎬 <span class="n">${loc.videoCount}</span> videos</div>
+          <div class="loc-count">🔊 <span class="n">${loc.audioCount}</span> audio</div>
+        </div>
+
+        ${warnings.length
+          ? `<div style="font-size:11px;color:var(--yellow);">⚠ ${warnings.map(esc).join(' · ')}</div>`
+          : ''
+        }
+
+        <!-- Per-location image fit -->
+        <div class="loc-fit">
+          <label>🖥 Screen image fit</label>
+          <select onchange="onFitChange('${loc.folderId}', this.value)"
+                  id="fit-sel-${loc.folderId}">${fitOptionsHtml}</select>
+          <div class="loc-fit-hint" id="fit-hint-${loc.folderId}">${esc(curFitObj.hint)}</div>
+        </div>
+
+        <div class="loc-url${isShort ? ' short' : ''}"
+             id="url-${loc.folderId}"
+             title="${esc(displayUrl)}">${esc(displayUrl)}</div>
+
+        <div class="loc-actions">
+          <button class="btn btn-primary btn-sm" onclick="openPlayer('${loc.folderId}')">▶ Open Player</button>
+          <button class="btn btn-ghost btn-sm" onclick="copyUrl('${loc.folderId}')">📋 Copy URL</button>
+          <button class="btn btn-ghost btn-sm" id="shorten-btn-${loc.folderId}" onclick="shortenUrl('${loc.folderId}')"
+            title="Create a short link like is.gd/sw-${esc(toAlias(loc.name).replace('sw-',''))} — uses the is.gd free service">
+            🔗 Short URL
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="toggleQR('${loc.folderId}')">QR</button>
+          <button class="btn btn-ghost btn-sm" onclick="downloadLocConfig('${loc.folderId}')" title="Push settings to this screen via Drive">📤 Push Config</button>
+        </div>
+
+        <!-- Push config hint -->
+        <div class="loc-push">
+          <span>📡</span>
+          <span><strong>Live update:</strong> Changed fit or settings? Click <em>Push Config</em> → upload the downloaded file to this location's Drive folder → screen applies it on next refresh.</span>
+        </div>
+
+        <div class="loc-qr" id="qr-${loc.folderId}">
+          <img src="${qrUrl}" alt="QR Code for ${esc(loc.name)}" loading="lazy">
+        </div>
+      </div>`;
+    grid.appendChild(card);
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PLAYER URL (config baked into URL hash — no device setup)
+   ═══════════════════════════════════════════════════════════ */
+function buildPlayerUrl(loc, settings) {
+  const cfg = {
+    apiKey: CFG.apiKey,
+    loc:    loc.name,
+    mf:     CFG.mainFolderId  || '',   // main folder — for global live config polling
+    lf:     loc.folderId      || '',   // location folder — for per-location live config polling
+    pf:     loc.photoFolderId || '',
+    vf:     loc.videoFolderId || '',
+    af:     loc.audioFolderId || '',
+    img:    settings.img,
+    vid:    settings.vid,
+    rfr:    settings.rfr,
+    fit:    getLocFit(loc.folderId),   // ← per-location fit, not global
+    clk:    settings.clk,
+    vol:    settings.vol,
+  };
+  const hash = btoa(JSON.stringify(cfg));
+  const base = location.href.replace(/admin\.html.*$/, '').replace(/\?.*$/, '');
+  return base + 'player.html#' + hash;
+}
+
+function copyUrl(folderId) {
+  const url = getDisplayUrl(folderId);
+  if (!url) return;
+  navigator.clipboard.writeText(url)
+    .then(() => notify('✓ URL copied'))
+    .catch(() => {
+      const ta = document.createElement('textarea');
+      ta.value = url; ta.style.cssText = 'position:fixed;opacity:0;';
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+      document.body.removeChild(ta);
+      notify('✓ URL copied');
+    });
+}
+
+function openPlayer(folderId) {
+  const url = getDisplayUrl(folderId);
+  if (url) window.open(url, '_blank');
+}
+
+function toggleQR(folderId) {
+  document.getElementById(`qr-${folderId}`).classList.toggle('show');
+}
+
+/* ═══════════════════════════════════════════════════════════
+   LIVE CONFIG PUSH
+   Generates a _swscreen_config.json the user uploads to Drive.
+   The player fetches it on every refresh and applies overrides
+   without needing the URL to change.
+   ═══════════════════════════════════════════════════════════ */
+function buildConfigPayload(loc) {
+  const s = getSettings();
+  return {
+    // Playback settings
+    fit: getLocFit(loc.folderId),
+    img: s.img, vid: s.vid, rfr: s.rfr,
+    clk: s.clk, vol: s.vol,
+    // Media folders (allows folder reassignment without URL change)
+    pf: loc.photoFolderId || '',
+    vf: loc.videoFolderId || '',
+    af: loc.audioFolderId || '',
+    loc: loc.name,
+    // Metadata
+    _updated: new Date().toISOString(),
+    _note: 'Upload to the location Drive folder. Player applies on next refresh.',
+  };
+}
+
+function downloadJson(obj, filename) {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+  const a    = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// Push config for a single location screen
+function downloadLocConfig(folderId) {
+  const loc = discoveredLocations.find(l => l.folderId === folderId);
+  if (!loc) return;
+  downloadJson(buildConfigPayload(loc), '_swscreen_config.json');
+  notify(`⬇ Config for "${loc.name}" — upload to that Drive folder`);
+}
+
+// Push global config to all screens at once
+function pushAllConfig() {
+  const s = getSettings();
+  const payload = {
+    // Global settings applied to all screens (fit is per-location so omit here)
+    img: s.img, vid: s.vid, rfr: s.rfr,
+    clk: s.clk, vol: s.vol,
+    _updated: new Date().toISOString(),
+    _note: 'Upload to the "Silverworld Screens" root Drive folder. All screens apply on next refresh.',
+  };
+  downloadJson(payload, '_swscreen_config.json');
+  notify('⬇ Global config downloaded — upload to the Silverworld Screens root folder');
+}
+
+/* ═══════════════════════════════════════════════════════════
+   UI HELPERS
+   ═══════════════════════════════════════════════════════════ */
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function setBadge(state, text) {
+  document.getElementById('conn-dot').className  = 'conn-dot' + (state ? ' ' + state : '');
+  document.getElementById('conn-text').textContent = text;
+}
+
+function showErr(msg) {
+  const el = document.getElementById('setup-err');
+  el.textContent = msg; el.style.display = 'block';
+}
+
+let _nt;
+function notify(msg, type = 'ok') {
+  const el = document.getElementById('notif');
+  el.textContent = msg; el.className = `show ${type}`;
+  clearTimeout(_nt); _nt = setTimeout(() => el.className = '', 3000);
+}
+
+function setDiscoverState(state, title, body) {
+  const grid = document.getElementById('locations-grid');
+  if (state === 'loading') {
+    grid.innerHTML = `<div id="discover-state"><div class="spinner-sm"></div><div>${title}</div></div>`;
+    return;
+  }
+  if (state === 'empty' || state === 'error') {
+    grid.innerHTML = `<div id="discover-state">
+      <div class="ds-icon">${state === 'error' ? '⚠️' : '📂'}</div>
+      <h3>${state === 'error' ? 'Discovery Failed' : 'No locations found'}</h3>
+      <p>${esc(body)}</p>
+    </div>`;
+  }
+}
+
+function toggleSetup() {
+  const body = document.getElementById('setup-body');
+  const tog  = document.getElementById('setup-toggle');
+  const show = body.style.display === 'none';
+  body.style.display = show ? '' : 'none';
+  tog.textContent    = show ? 'Hide ▲' : 'Show ▼';
+}
+
+function openSettings() {
+  document.getElementById('settings-card').style.display = '';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+/* ═══════════════════════════════════════════════════════════
+   AUTO-LOAD ON START
+   ═══════════════════════════════════════════════════════════ */
+(function init() {
+  if (CFG.apiKey)       document.getElementById('api-key').value     = CFG.apiKey;
+  if (CFG.mainFolderId) document.getElementById('main-folder').value = CFG.mainFolderId;
+  if (CFG.apiKey && CFG.mainFolderId) discoverLocations();
+})();
+</script>
+</body>
+</html>
