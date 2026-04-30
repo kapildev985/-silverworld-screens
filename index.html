@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Silverworld Screens</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      background: #0a0a0a;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 40px 20px;
+    }
+    .logo { font-size: 40px; margin-bottom: 12px; }
+    h1 { font-size: 28px; font-weight: 700; letter-spacing: -.5px; margin-bottom: 6px; }
+    .tagline { color: rgba(255,255,255,.4); font-size: 15px; margin-bottom: 48px; text-align: center; }
+    .cards { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; max-width: 640px; width: 100%; }
+    .card {
+      flex: 1; min-width: 240px;
+      background: #161616; border: 1px solid rgba(255,255,255,.1);
+      border-radius: 16px; padding: 28px 24px;
+      text-decoration: none; color: inherit;
+      transition: border-color .2s, transform .15s;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .card:hover { border-color: rgba(255,255,255,.25); transform: translateY(-2px); }
+    .card-icon { font-size: 32px; }
+    .card-title { font-size: 18px; font-weight: 600; }
+    .card-desc  { font-size: 13px; color: rgba(255,255,255,.4); line-height: 1.6; }
+    .card-cta   { margin-top: auto; padding-top: 16px; font-size: 13px; font-weight: 600; color: #4f8ef7; }
+    .card.primary { border-color: rgba(79,142,247,.3); background: rgba(79,142,247,.06); }
+    .card.primary:hover { border-color: rgba(79,142,247,.6); }
+    footer { margin-top: 56px; color: rgba(255,255,255,.2); font-size: 12px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="logo">📺</div>
+  <h1>Silverworld Screens</h1>
+  <p class="tagline">Digital signage powered by Google Drive</p>
+  <div class="cards">
+    <a class="card primary" href="admin.html">
+      <div class="card-icon">🔧</div>
+      <div class="card-title">Admin Panel</div>
+      <div class="card-desc">Connect your Google Drive, discover locations, manage content, and get player URLs for every screen.</div>
+      <div class="card-cta">Open Admin →</div>
+    </a>
+    <a class="card" href="player.html">
+      <div class="card-icon">▶</div>
+      <div class="card-title">Player</div>
+      <div class="card-desc">Full-screen media player for store screens. Open via the QR code or URL from the admin — zero setup on the device.</div>
+      <div class="card-cta">Open Player →</div>
+    </a>
+  </div>
+  <footer>Silverworld Screens · Hosted on GitHub Pages</footer>
+</body>
+</html>
