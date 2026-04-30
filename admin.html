@@ -138,6 +138,42 @@
     }
     .loc-push strong { color:var(--text); }
 
+    /* ── Status bar ── */
+    #status-bar{
+      display:none;
+      align-items:center;gap:14px;flex-wrap:wrap;
+      background:var(--s1);border:1px solid var(--border);
+      border-radius:var(--r2);padding:10px 16px;
+      margin-bottom:16px;font-size:13px;
+    }
+    #status-bar.visible{ display:flex; }
+    .sb-pill{
+      display:flex;align-items:center;gap:6px;
+      background:var(--s2);border-radius:20px;
+      padding:4px 10px;font-size:12px;
+    }
+    .sb-pill.green{ background:rgba(52,199,89,.12);color:#34c759; }
+    .sb-pill.yellow{ background:rgba(240,192,80,.12);color:var(--yellow); }
+    .sb-pill.red{ background:rgba(255,69,58,.12);color:#ff453a; }
+    .sb-totals{ color:var(--dim);font-size:12px; }
+    .sb-time{ color:var(--dim2);font-size:11px;margin-left:auto; }
+
+    /* Status dot on card */
+    .status-dot{
+      position:absolute;top:8px;right:8px;
+      width:10px;height:10px;border-radius:50%;
+      border:2px solid rgba(0,0,0,.4);
+    }
+    .status-dot.green{ background:#34c759; }
+    .status-dot.yellow{ background:#ffd60a; }
+    .status-dot.red{ background:#ff453a; }
+    .status-dot.checking{
+      background:transparent;
+      border:2px solid rgba(255,255,255,.4);
+      border-top-color:#fff;
+      animation:spin .7s linear infinite;
+    }
+
     /* ── Location card ── */
     .loc-card{
       background:var(--s1);border:1px solid var(--border);
@@ -422,6 +458,14 @@
         🔄 Refresh
       </button>
     </div>
+    <!-- Health status bar — shown after locations are discovered -->
+    <div id="status-bar">
+      <span id="sb-summary">—</span>
+      <span id="sb-totals" class="sb-totals"></span>
+      <span id="sb-time" class="sb-time"></span>
+      <button class="btn btn-ghost btn-sm" onclick="recheckAll()" id="recheck-all-btn" style="margin-left:auto;">🔄 Re-check All</button>
+    </div>
+
     <div id="locations-grid">
       <div id="discover-state">
         <div class="ds-icon">📍</div>
@@ -817,6 +861,7 @@ function renderLocations(locations) {
         }
         <div class="loc-badge">${esc(loc.name)}</div>
         ${warnings.length ? `<div class="loc-warn">⚠ ${esc(warnings[0])}</div>` : ''}
+        <div class="status-dot ${locStatus(loc)}" id="dot-${loc.folderId}" title="${locStatusTitle(loc)}"></div>
       </div>
       <div class="loc-body">
         <div class="loc-name">📍 ${esc(loc.name)}</div>
@@ -853,6 +898,7 @@ function renderLocations(locations) {
           </button>
           <button class="btn btn-ghost btn-sm" onclick="toggleQR('${loc.folderId}')">QR</button>
           <button class="btn btn-ghost btn-sm" onclick="downloadLocConfig('${loc.folderId}')" title="Push settings to this screen via Drive">📤 Push Config</button>
+          <button class="btn btn-ghost btn-sm" onclick="recheckLocation('${loc.folderId}')" id="recheck-btn-${loc.folderId}" title="Re-query Drive to verify this location's content">🔍 Check</button>
         </div>
 
         <!-- Push config hint -->
@@ -867,6 +913,113 @@ function renderLocations(locations) {
       </div>`;
     grid.appendChild(card);
   });
+
+  updateStatusBar();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   HEALTH CHECK — status bar + per-card dot
+   ═══════════════════════════════════════════════════════════ */
+function locStatus(loc) {
+  if (!loc.photoCount && !loc.videoCount) return 'red';
+  if (!loc.hasPhotoSub || !loc.hasVideoSub) return 'yellow';
+  return 'green';
+}
+function locStatusTitle(loc) {
+  if (!loc.photoCount && !loc.videoCount) return 'No content found — check Drive folders';
+  if (!loc.hasPhotoSub) return 'Missing photo/ subfolder';
+  if (!loc.hasVideoSub) return 'Missing video/ subfolder';
+  return `✅ ${loc.photoCount} photos · ${loc.videoCount} videos · ${loc.audioCount} audio`;
+}
+
+function updateStatusBar() {
+  if (!discoveredLocations.length) return;
+  const bar = document.getElementById('status-bar');
+  bar.classList.add('visible');
+
+  const ok   = discoveredLocations.filter(l => locStatus(l) === 'green').length;
+  const warn = discoveredLocations.filter(l => locStatus(l) === 'yellow').length;
+  const bad  = discoveredLocations.filter(l => locStatus(l) === 'red').length;
+  const total = discoveredLocations.length;
+
+  let summaryHtml = '';
+  if (bad === 0 && warn === 0)
+    summaryHtml = `<span class="sb-pill green">✅ All ${total} locations healthy</span>`;
+  else if (bad > 0)
+    summaryHtml = `<span class="sb-pill red">⚠ ${bad} location${bad>1?'s':''} empty</span>`
+                + (ok ? `<span class="sb-pill green">✅ ${ok} healthy</span>` : '')
+                + (warn ? `<span class="sb-pill yellow">⚡ ${warn} partial</span>` : '');
+  else
+    summaryHtml = `<span class="sb-pill yellow">⚡ ${warn} location${warn>1?'s':''} with warnings</span>`
+                + `<span class="sb-pill green">✅ ${ok} healthy</span>`;
+
+  const totalPhotos = discoveredLocations.reduce((s,l)=>s+l.photoCount,0);
+  const totalVideos = discoveredLocations.reduce((s,l)=>s+l.videoCount,0);
+  const totalAudio  = discoveredLocations.reduce((s,l)=>s+l.audioCount,0);
+
+  document.getElementById('sb-summary').innerHTML = summaryHtml;
+  document.getElementById('sb-totals').textContent =
+    `${totalPhotos} photos · ${totalVideos} videos · ${totalAudio} audio tracks`;
+  document.getElementById('sb-time').textContent =
+    'Last checked: ' + new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+}
+
+async function recheckLocation(folderId) {
+  const loc = discoveredLocations.find(l => l.folderId === folderId);
+  if (!loc) return;
+
+  const dot = document.getElementById('dot-' + folderId);
+  const btn = document.getElementById('recheck-btn-' + folderId);
+  if (dot) { dot.className = 'status-dot checking'; }
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+
+  try {
+    const apiKey = CFG.apiKey;
+    const subs   = await listSubfolders(folderId, apiKey);
+    const photoSub = subs.find(s => /^photos?$/i.test(s.name.trim()));
+    const videoSub = subs.find(s => /^videos?$/i.test(s.name.trim()));
+    const audioSub = subs.find(s => /^audios?$/i.test(s.name.trim()));
+
+    loc.hasPhotoSub  = !!photoSub;
+    loc.hasVideoSub  = !!videoSub;
+    loc.hasAudioSub  = !!audioSub;
+    loc.photoCount   = photoSub ? (await listMedia(photoSub.id, apiKey, 'image')).length : 0;
+    loc.videoCount   = videoSub ? (await listMedia(videoSub.id, apiKey, 'video')).length : 0;
+    loc.audioCount   = audioSub ? (await listMedia(audioSub.id, apiKey, 'audio')).length : 0;
+    loc.photoFolderId = photoSub?.id || null;
+    loc.videoFolderId = videoSub?.id || null;
+    loc.audioFolderId = audioSub?.id || null;
+
+    // Update counts in card
+    const card = dot?.closest('.loc-card');
+    if (card) {
+      const ns = card.querySelectorAll('.loc-count .n');
+      if (ns[0]) ns[0].textContent = loc.photoCount;
+      if (ns[1]) ns[1].textContent = loc.videoCount;
+      if (ns[2]) ns[2].textContent = loc.audioCount;
+    }
+
+    const st = locStatus(loc);
+    if (dot) { dot.className = 'status-dot ' + st; dot.title = locStatusTitle(loc); }
+    toast(st === 'green' ? `✅ ${loc.name}: ${loc.photoCount} photos, ${loc.videoCount} videos`
+        : st === 'yellow' ? `⚡ ${loc.name}: check subfolder names`
+        : `⚠ ${loc.name}: no content found`);
+  } catch(e) {
+    if (dot) { dot.className = 'status-dot red'; dot.title = 'Check failed: ' + e.message; }
+    toast('Check failed: ' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔍 Check'; }
+    updateStatusBar();
+  }
+}
+
+async function recheckAll() {
+  const btn = document.getElementById('recheck-all-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '🔄 Checking…'; }
+  for (const loc of discoveredLocations) {
+    await recheckLocation(loc.folderId);
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '🔄 Re-check All'; }
 }
 
 /* ═══════════════════════════════════════════════════════════
