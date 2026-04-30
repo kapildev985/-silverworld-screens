@@ -798,17 +798,44 @@ async function buildEl(item) {
     return img;
 
   } else {
-    // ── Video via Drive preview iframe ───────────────────────
-    const wrap   = document.createElement('div');
+    // ── Video via native <video> element ─────────────────────
+    // We stream directly from the Drive API instead of using an
+    // iframe embed. This works on Samsung TV "Internet" browser,
+    // Tizen, LG webOS, and all Chromium-based browsers — no
+    // Google Drive viewer required.
+    const wrap  = document.createElement('div');
     wrap.className = 'vid-wrap';
-    const iframe = document.createElement('iframe');
-    iframe.src = `https://drive.google.com/file/d/${item.id}/preview?rm=minimal`;
-    iframe.allow = 'autoplay; encrypted-media';
-    iframe.setAttribute('allowfullscreen', '');
-    const cap = document.createElement('div');
-    cap.className = 'vid-cap';
-    wrap.appendChild(iframe);
-    wrap.appendChild(cap);
+
+    const video = document.createElement('video');
+    // Drive API streaming URL — works for publicly shared files
+    video.src = `https://www.googleapis.com/drive/v3/files/${item.id}?alt=media&key=${CFG.apiKey}`;
+    video.muted       = true;   // muted = autoplay allowed without gesture
+    video.autoplay    = true;
+    video.loop        = false;  // slideshow timer advances after duration
+    video.controls    = false;
+    video.playsInline = true;
+    video.setAttribute('playsinline', '');
+    video.setAttribute('webkit-playsinline', '');
+    video.style.cssText = `
+      width: 100%; height: 100%;
+      object-fit: contain;
+      background: #000;
+      display: block;
+    `;
+
+    // Explicit play() for browsers that don't honour autoplay attr
+    video.addEventListener('canplay', () => {
+      video.play().catch(() => {});
+    }, { once: true });
+
+    // Error fallback — show a simple message instead of blank black
+    video.addEventListener('error', () => {
+      wrap.style.cssText = 'display:flex;align-items:center;justify-content:center;';
+      wrap.innerHTML = `<p style="color:rgba(255,255,255,.35);font-size:14px;text-align:center;">
+        ▶ ${item.name}<br><span style="font-size:11px;opacity:.6;">Unable to play — check Drive sharing settings</span></p>`;
+    }, { once: true });
+
+    wrap.appendChild(video);
     return wrap;
   }
 }
@@ -834,6 +861,13 @@ async function showSlide(idx) {
   hideAllPanels();
   animProg(dur);
 
+  // If it's a video, nudge play() after the layer is visible.
+  // Some browsers (Samsung Internet) don't autostart until visible.
+  if (item.type === 'video') {
+    const vid = layers[nextL].querySelector('video');
+    if (vid) vid.play().catch(() => {});
+  }
+
   if (item.type === 'video') {
     // We can't detect iframe video end, so use configured duration
     slideTimer = setTimeout(() => showSlide(slideIdx + 1), dur);
@@ -857,6 +891,20 @@ async function startPlayback(newItems, announce) {
 /* ═══════════════════════════════════════════════════════════
    AUTO-REFRESH — detects content changes via Drive modifiedTime
    ═══════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════
+   SAFE REFRESH — debounced wrapper so multiple triggers
+   (interval + visibility + online) never stack up.
+   Blocks a second call for 20 seconds after one starts.
+   ═══════════════════════════════════════════════════════════ */
+let _refreshLock = false;
+async function safeRefresh() {
+  if (_refreshLock) return;
+  _refreshLock = true;
+  try { await refresh(); } finally {
+    setTimeout(() => { _refreshLock = false; }, 20_000);
+  }
+}
+
 async function refresh() {
   try {
     // Check for admin-pushed live config changes first
@@ -913,7 +961,18 @@ if (CFG?.clk) {
    OFFLINE INDICATOR
    ═══════════════════════════════════════════════════════════ */
 window.addEventListener('offline', () => document.getElementById('offline-bar').classList.add('on'));
-window.addEventListener('online',  () => document.getElementById('offline-bar').classList.remove('on'));
+window.addEventListener('online',  () => {
+  document.getElementById('offline-bar').classList.remove('on');
+  // Network just came back — immediately check for new content instead
+  // of waiting for the next scheduled interval tick.
+  safeRefresh();
+});
+
+// When the TV screen wakes from sleep (or the user switches back to this tab),
+// immediately check for new content so the display is always up-to-date.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) safeRefresh();
+});
 
 /* ═══════════════════════════════════════════════════════════
    ORIENTATION / RESIZE — keep stage truly full-screen
@@ -1034,8 +1093,10 @@ window.addEventListener('orientationchange', () => setTimeout(fixViewport, 50));
   }
 
   // ── Auto-refresh every N minutes ────────────────────────
+  // Also fires instantly on screen-wake (visibilitychange) and
+  // network-reconnect (online) — see listeners above.
   const refreshMs = Math.max(1, CFG.rfr || 5) * 60 * 1000;
-  setInterval(refresh, refreshMs);
+  setInterval(safeRefresh, refreshMs);
 
   // ── Auto fullscreen + audio unlock on first tap ─────────
   document.addEventListener('click', () => {

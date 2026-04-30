@@ -294,11 +294,34 @@
         <div class="how-step">
           <div class="how-num">3</div>
           <div class="how-body">
-            <h4>Enter your API Key and Folder ID below</h4>
-            <p>Paste them in, click <strong>Discover Locations</strong>. Your three locations will
-              appear automatically with their photo and video counts. No other setup needed.</p>
+            <h4>Host the files online — required for short links (free, 2 min)</h4>
+            <p>Short player URLs only work when the app is served over <code>https://</code>.
+              The easiest way: go to <a href="https://app.netlify.com/drop" target="_blank">app.netlify.com/drop</a>,
+              drag your <strong>signage-app.zip</strong> onto the page, and Netlify gives you a free URL like
+              <code>amazing-name-123.netlify.app</code>. Paste that URL into the <em>Hosting URL</em> field below.
+              You can also rename it to something like <code>silverworld-screens.netlify.app</code> in Netlify settings.
+              <br><strong>Skip this step</strong> if you don't need short links — the app works fully offline without it.</p>
           </div>
         </div>
+        <div class="how-step">
+          <div class="how-num">4</div>
+          <div class="how-body">
+            <h4>Enter your credentials below and discover locations</h4>
+            <p>Paste your API key, folder ID, and optional hosting URL, then click
+              <strong>Discover Locations</strong>. Your screens will appear with counts, fit controls,
+              and ready-to-use player URLs.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- File:// warning — shown when no hosting URL is set -->
+      <div id="file-proto-warn" style="display:none;
+        background:rgba(240,192,80,.1);border:1px solid rgba(240,192,80,.3);
+        border-radius:var(--r2);padding:10px 14px;font-size:12px;
+        color:var(--yellow);line-height:1.6;margin-bottom:14px;">
+        ⚠ <strong>Running from a local file.</strong>
+        Short URLs require the app to be hosted online (see step 3 above).
+        All other features — playback, offline sync, audio — work fine locally.
       </div>
 
       <div class="setup-grid">
@@ -313,6 +336,20 @@
           <div class="hint">Paste the Folder ID from your Google Drive URL.</div>
         </div>
       </div>
+
+      <!-- Hosting URL — spans full width below the 2-col grid -->
+      <div class="field" style="margin-top:12px;">
+        <label>Hosting URL <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--dim2);">(optional — needed for short links)</span></label>
+        <input id="hosting-url" type="url"
+          placeholder="https://your-site.netlify.app"
+          autocomplete="off" spellcheck="false"
+          oninput="document.getElementById('file-proto-warn').style.display = this.value.trim() ? 'none' : ''">
+        <div class="hint">
+          If you've uploaded the app to Netlify or any web host, paste the base URL here.
+          Player URLs will use it so short links work. Leave blank for local use.
+        </div>
+      </div>
+
       <div id="setup-err"></div>
       <div style="display:flex;gap:8px;margin-top:14px;">
         <button class="btn btn-primary" onclick="discoverLocations()" id="discover-btn">
@@ -341,7 +378,8 @@
         </div>
         <div class="field">
           <label>Auto-refresh (min)</label>
-          <input id="rfr" type="number" value="5" min="1" max="60">
+          <input id="rfr" type="number" value="1" min="1" max="60">
+          <div class="hint" style="margin-top:4px;">Screens auto-check for new content every minute — no manual refresh needed.</div>
         </div>
         <div class="field">
           <label>Clock overlay</label>
@@ -517,6 +555,19 @@ async function shortenUrl(folderId) {
   const btn     = document.getElementById(`shorten-btn-${folderId}`);
   const longUrl = buildPlayerUrl(loc, getSettings());
 
+  // file:// URLs can't be shortened — shorteners block them for security
+  if (longUrl.startsWith('file://')) {
+    notify('⚠ Enter a Hosting URL first (see setup step 3)', 'bad');
+    // Expand and highlight the setup card + hosting URL field
+    const body = document.getElementById('setup-body');
+    if (body.style.display === 'none') toggleSetup();
+    const hf = document.getElementById('hosting-url');
+    hf.style.borderColor = 'var(--yellow)';
+    hf.focus();
+    setTimeout(() => hf.style.borderColor = '', 3000);
+    return;
+  }
+
   if (btn) {
     btn.disabled = true;
     btn.innerHTML = `<span class="btn-spinner"></span>Creating…`;
@@ -633,12 +684,13 @@ async function listMedia(folderId, apiKey, type) {
 async function discoverLocations() {
   const apiKey      = document.getElementById('api-key').value.trim();
   const mainFolderId= document.getElementById('main-folder').value.trim();
+  const hostingUrl  = document.getElementById('hosting-url').value.trim().replace(/\/$/, '');
 
   if (!apiKey)      { showErr('Please enter your Google Drive API key.'); return; }
   if (!mainFolderId){ showErr('Please enter the Silverworld Screens folder ID.'); return; }
 
   document.getElementById('setup-err').style.display = 'none';
-  CFG = { apiKey, mainFolderId };
+  CFG = { apiKey, mainFolderId, hostingUrl };
   saveConfig(CFG);
 
   // Show loading
@@ -837,7 +889,10 @@ function buildPlayerUrl(loc, settings) {
     vol:    settings.vol,
   };
   const hash = btoa(JSON.stringify(cfg));
-  const base = location.href.replace(/admin\.html.*$/, '').replace(/\?.*$/, '');
+  // Prefer an explicit hosting URL (https://) over the local file:// path
+  const base = CFG.hostingUrl
+    ? CFG.hostingUrl + '/'
+    : location.href.replace(/admin\.html.*$/, '').replace(/\?.*$/,'');
   return base + 'player.html#' + hash;
 }
 
@@ -975,8 +1030,16 @@ function openSettings() {
    AUTO-LOAD ON START
    ═══════════════════════════════════════════════════════════ */
 (function init() {
-  if (CFG.apiKey)       document.getElementById('api-key').value     = CFG.apiKey;
-  if (CFG.mainFolderId) document.getElementById('main-folder').value = CFG.mainFolderId;
+  if (CFG.apiKey)       document.getElementById('api-key').value      = CFG.apiKey;
+  if (CFG.mainFolderId) document.getElementById('main-folder').value  = CFG.mainFolderId;
+  if (CFG.hostingUrl)   document.getElementById('hosting-url').value  = CFG.hostingUrl;
+
+  // Show a gentle warning if running as a local file with no hosting URL
+  const isFileProto = location.protocol === 'file:';
+  const hasHosting  = !!CFG.hostingUrl;
+  document.getElementById('file-proto-warn').style.display =
+    (isFileProto && !hasHosting) ? '' : 'none';
+
   if (CFG.apiKey && CFG.mainFolderId) discoverLocations();
 })();
 </script>
