@@ -1,0 +1,1053 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>Silverworld Screens</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    html {
+      /* Use dynamic viewport height so the stage fills correctly on
+         mobile in both portrait and landscape, even when the browser
+         chrome (address bar) appears or disappears during rotation. */
+      height: 100%; height: 100dvh;
+    }
+    body {
+      width: 100%; height: 100%; height: 100dvh;
+      background: #000;
+      overflow: hidden;
+      cursor: none;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      /* Respect notches / rounded corners on all four sides */
+      padding:
+        env(safe-area-inset-top, 0px)
+        env(safe-area-inset-right, 0px)
+        env(safe-area-inset-bottom, 0px)
+        env(safe-area-inset-left, 0px);
+    }
+
+    /* ── Full-screen panels ── */
+    .panel {
+      position: fixed; inset: 0;
+      /* Stretch into safe-areas so panels fill notched screens too */
+      top: env(safe-area-inset-top, 0px);
+      right: env(safe-area-inset-right, 0px);
+      bottom: env(safe-area-inset-bottom, 0px);
+      left: env(safe-area-inset-left, 0px);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      text-align: center; padding: 40px;
+      z-index: 20;
+    }
+    .panel.off { display: none !important; }
+
+    /* Loading */
+    #p-load { background: #000; }
+    .spinner {
+      width: 40px; height: 40px;
+      border: 3px solid rgba(255,255,255,.1);
+      border-top-color: rgba(255,255,255,.85);
+      border-radius: 50%;
+      animation: spin .85s linear infinite;
+      margin-bottom: 18px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #load-msg { color: rgba(255,255,255,.4); font-size: 14px; letter-spacing: .05em; }
+
+    /* Sync */
+    #p-sync { background: #000; }
+    .sy-title { color: #fff; font-size: 20px; font-weight: 500; margin-bottom: 6px; }
+    .sy-sub   { color: rgba(255,255,255,.35); font-size: 13px; margin-bottom: 30px; }
+    .sy-file  { color: rgba(255,255,255,.6); font-size: 13px; margin-bottom: 12px; min-height: 18px; }
+    .bar-bg   { width: 280px; max-width: 88vw; height: 4px; background: rgba(255,255,255,.1); border-radius: 3px; overflow: hidden; }
+    .bar-fill { height: 100%; background: #4f8ef7; border-radius: 3px; transition: width .2s; }
+    .sy-count { color: rgba(255,255,255,.25); font-size: 12px; margin-top: 9px; }
+
+    /* Error */
+    #p-err { background: #000; }
+    #e-icon  { font-size: 52px; margin-bottom: 20px; }
+    #e-title { color: #fff; font-size: 20px; font-weight: 500; margin-bottom: 10px; }
+    #e-body  { color: rgba(255,255,255,.45); font-size: 14px; max-width: 400px; line-height: 1.7; }
+
+    /* ── Media stage — always full viewport, survives rotation ── */
+    #stage {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100vw;  height: 100vh;
+      /* dvh is the authoritative size on modern browsers;
+         100vh is the fallback for older ones */
+      width: 100dvw; height: 100dvh;
+      z-index: 1;
+    }
+    .layer {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      opacity: 0;
+      transition: opacity .9s ease-in-out;
+      background: #000;
+    }
+    .layer.on { opacity: 1; z-index: 2; }
+    .layer img {
+      width: 100%; height: 100%;
+      object-fit: var(--fit, cover);
+      object-position: center center;
+      display: block;
+    }
+    /* Video wrapper fills stage completely */
+    .vid-wrap { position: absolute; inset: 0; width: 100%; height: 100%; }
+    .vid-wrap iframe { width: 100%; height: 100%; border: none; display: block; }
+    /* Transparent overlay so iFrame doesn't steal focus */
+    .vid-cap  { position: absolute; inset: 0; z-index: 1; }
+
+    /* ── HUD ── */
+    /* Offline indicator (yellow top bar) */
+    #offline-bar {
+      position: fixed; top: 0; left: 0; right: 0;
+      height: 3px; background: #f0c050;
+      z-index: 50; display: none;
+    }
+    #offline-bar.on { display: block; }
+
+    /* Progress bar (bottom) */
+    #prog {
+      position: fixed; bottom: 0; left: 0;
+      height: 3px; background: rgba(255,255,255,.3);
+      z-index: 50; width: 0%; display: none;
+    }
+
+    /* Location badge (fades after a few seconds) */
+    #loc-badge {
+      position: fixed; top: 20px; left: 24px;
+      background: rgba(0,0,0,.65); backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,.12);
+      color: rgba(255,255,255,.85);
+      padding: 6px 14px; border-radius: 20px;
+      font-size: 13px; letter-spacing: .04em;
+      z-index: 50;
+      opacity: 0; transition: opacity .5s;
+      pointer-events: none;
+    }
+    #loc-badge.on { opacity: 1; }
+
+    /* Clock */
+    #clock {
+      position: fixed; top: 20px; right: 26px;
+      color: rgba(255,255,255,.88);
+      font-size: 28px; font-weight: 300;
+      text-shadow: 0 2px 10px rgba(0,0,0,.9);
+      z-index: 50; display: none;
+    }
+
+    /* Toast */
+    #toast {
+      position: fixed; bottom: 26px; left: 50%;
+      transform: translateX(-50%) translateY(8px);
+      background: rgba(12,12,12,.85); backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,.1);
+      color: rgba(255,255,255,.9);
+      padding: 7px 20px; border-radius: 20px;
+      font-size: 13px; z-index: 100;
+      opacity: 0; transition: all .3s;
+      pointer-events: none; white-space: nowrap;
+    }
+    #toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* ── Audio HUD (bottom-left) ── */
+    #audio-hud {
+      position: fixed; bottom: 18px; left: 18px;
+      display: flex; align-items: center; gap: 9px;
+      background: rgba(0,0,0,.65); backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,.1);
+      padding: 6px 14px 6px 12px; border-radius: 20px;
+      z-index: 50;
+      opacity: 0; transition: opacity .5s;
+      pointer-events: none;
+    }
+    #audio-hud.on { opacity: 1; }
+    #audio-hud.paused .eq-bar { animation-play-state: paused; }
+
+    .eq-bars { display: flex; align-items: flex-end; gap: 2px; height: 14px; }
+    .eq-bar {
+      width: 3px; background: #4f8ef7; border-radius: 2px;
+      animation: eq .7s ease-in-out infinite alternate;
+    }
+    .eq-bar:nth-child(1) { animation-duration: .7s; }
+    .eq-bar:nth-child(2) { animation-duration: .5s; animation-delay: .15s; }
+    .eq-bar:nth-child(3) { animation-duration: .9s; animation-delay: .05s; }
+    .eq-bar:nth-child(4) { animation-duration: .6s; animation-delay: .25s; }
+    @keyframes eq {
+      from { height: 2px;  opacity: .5; }
+      to   { height: 14px; opacity: 1;  }
+    }
+    #eq-track {
+      color: rgba(255,255,255,.72);
+      font-size: 12px; max-width: 200px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    /* Tap-to-unlock audio hint */
+    #audio-unlock {
+      position: fixed; bottom: 60px; left: 50%;
+      transform: translateX(-50%) translateY(6px);
+      background: rgba(79,142,247,.88); color: #fff;
+      padding: 9px 22px; border-radius: 22px;
+      font-size: 14px; z-index: 110; cursor: pointer;
+      opacity: 0; transition: all .3s;
+      pointer-events: none; white-space: nowrap;
+      border: none;
+    }
+    #audio-unlock.on { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+  </style>
+</head>
+<body>
+
+<!-- Loading -->
+<div id="p-load" class="panel">
+  <div class="spinner"></div>
+  <div id="load-msg">Starting…</div>
+</div>
+
+<!-- Syncing images -->
+<div id="p-sync" class="panel off">
+  <div class="sy-title" id="sy-title">📥 Downloading Content</div>
+  <div class="sy-sub" id="sy-sub">Saving media to device — plays offline after this</div>
+  <div class="sy-file" id="sy-file"></div>
+  <div class="bar-bg"><div class="bar-fill" id="bar-fill" style="width:0%"></div></div>
+  <div class="sy-count" id="sy-count"></div>
+</div>
+
+<!-- Error / not configured -->
+<div id="p-err" class="panel off">
+  <div id="e-icon">📺</div>
+  <div id="e-title">Screen not configured</div>
+  <div id="e-body">Open this URL from the Silverworld Screens Admin panel, or scan the QR code with your phone to get the player URL for this location.</div>
+</div>
+
+<!-- Media stage -->
+<div id="stage">
+  <div class="layer" id="la"></div>
+  <div class="layer" id="lb"></div>
+</div>
+
+<!-- HUD -->
+<div id="offline-bar"></div>
+<div id="prog"></div>
+<div id="loc-badge"></div>
+<div id="clock"></div>
+<div id="toast"></div>
+
+<!-- Audio HUD -->
+<div id="audio-hud">
+  <div class="eq-bars">
+    <div class="eq-bar"></div>
+    <div class="eq-bar"></div>
+    <div class="eq-bar"></div>
+    <div class="eq-bar"></div>
+  </div>
+  <div id="eq-track"></div>
+</div>
+<button id="audio-unlock" onclick="AudioPlayer.unlock()">🔊 Tap to enable audio</button>
+
+<script>
+/* ═══════════════════════════════════════════════════════════
+   CONFIG — decoded from URL hash (set by admin.html)
+   ═══════════════════════════════════════════════════════════
+   Keys: apiKey, loc, pf (photoFolderId), vf (videoFolderId),
+         img (imgDur sec), vid (vidDur sec), rfr (refresh min),
+         fit (cover|contain), clk (boolean clock)
+   ═══════════════════════════════════════════════════════════ */
+const CFG = (() => {
+  const h = location.hash.replace(/^#/, '');
+  if (!h) return null;
+  try { return JSON.parse(atob(h)); } catch { return null; }
+})();
+
+/* ═══════════════════════════════════════════════════════════
+   RUNTIME CONFIG — merged from URL hash + live Drive file
+   Fit modes: cover | contain-blur | contain | fill | scale-down
+   contain-blur is handled in buildEl() — CSS var gets 'contain'
+   ═══════════════════════════════════════════════════════════ */
+// Mutable config — live overrides are merged in at runtime
+let LIVE = {};  // overrides from _swscreen_config.json
+
+function getFit()  { return LIVE.fit  || CFG?.fit  || 'cover'; }
+function getVol()  { return (LIVE.vol  ?? CFG?.vol  ?? 80) / 100; }
+function getImgDur(){ return LIVE.img  || CFG?.img  || 10; }
+function getVidDur(){ return LIVE.vid  || CFG?.vid  || 30; }
+function getRfr()  { return LIVE.rfr  || CFG?.rfr  || 5; }
+
+function applyCssFit(fit) {
+  // 'contain-blur' is not a real CSS value — the blur layer is
+  // created in buildEl(); the CSS variable just controls the fg image.
+  document.documentElement.style.setProperty(
+    '--fit', fit === 'contain-blur' ? 'contain' : (fit || 'cover')
+  );
+}
+applyCssFit(getFit());
+
+/* ═══════════════════════════════════════════════════════════
+   INDEXED DB — stores image blobs for offline playback
+   ═══════════════════════════════════════════════════════════ */
+const IDB = {
+  _db: null,
+  open() {
+    return new Promise((ok, fail) => {
+      const r = indexedDB.open('sw_player', 2);
+      r.onupgradeneeded = e => {
+        const d = e.target.result;
+        const v = e.oldVersion;
+        if (v < 1) {
+          d.createObjectStore('blobs', { keyPath: 'id' });
+          d.createObjectStore('meta',  { keyPath: 'k' });
+        }
+        if (v < 2) {
+          if (!d.objectStoreNames.contains('audio')) d.createObjectStore('audio', { keyPath: 'id' });
+        }
+      };
+      r.onsuccess = e => { this._db = e.target.result; ok(); };
+      r.onerror   = e => fail(e.target.error);
+    });
+  },
+  _op(store, mode, fn) {
+    return new Promise((ok, fail) => {
+      const tx  = this._db.transaction(store, mode);
+      const req = fn(tx.objectStore(store));
+      if (req) { req.onsuccess = e => ok(e.target.result); req.onerror = e => fail(e.target.error); }
+      else     { tx.oncomplete = ok; tx.onerror = e => fail(e.target.error); }
+    });
+  },
+  get(s, k)  { return this._op(s, 'readonly',  st => st.get(k)); },
+  set(s, v)  { return this._op(s, 'readwrite', st => { st.put(v); return null; }); },
+  del(s, k)  { return this._op(s, 'readwrite', st => { st.delete(k); return null; }); },
+  keys(s)    { return this._op(s, 'readonly',  st => st.getAllKeys()); },
+};
+
+/* ═══════════════════════════════════════════════════════════
+   UI HELPERS
+   ═══════════════════════════════════════════════════════════ */
+function showPanel(id) {
+  ['p-load','p-sync','p-err'].forEach(p =>
+    document.getElementById(p).classList.toggle('off', p !== id)
+  );
+}
+function hideAllPanels() {
+  ['p-load','p-sync','p-err'].forEach(p =>
+    document.getElementById(p).classList.add('off')
+  );
+}
+function setLoading(msg) { document.getElementById('load-msg').textContent = msg; }
+
+let _toastT;
+function toast(msg, ms = 3500) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('on');
+  clearTimeout(_toastT);
+  _toastT = setTimeout(() => el.classList.remove('on'), ms);
+}
+
+function showError(icon, title, body) {
+  document.getElementById('e-icon').textContent  = icon;
+  document.getElementById('e-title').textContent = title;
+  document.getElementById('e-body').textContent  = body;
+  showPanel('p-err');
+}
+
+function setSyncUI(fileName, done, total) {
+  document.getElementById('sy-file').textContent  = fileName;
+  document.getElementById('sy-count').textContent = `${done} of ${total} photos`;
+  document.getElementById('bar-fill').style.width = (done / total * 100) + '%';
+}
+
+function animProg(ms) {
+  const el = document.getElementById('prog');
+  el.style.display = 'block';
+  el.style.transition = 'none'; el.style.width = '0%';
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    el.style.transition = `width ${ms}ms linear`;
+    el.style.width = '100%';
+  }));
+}
+
+/* ═══════════════════════════════════════════════════════════
+   GOOGLE DRIVE API
+   ═══════════════════════════════════════════════════════════ */
+async function driveList(folderId) {
+  if (!folderId) return [];
+  const q = encodeURIComponent(
+    `'${folderId}' in parents and trashed = false`
+    + ` and (mimeType contains 'image/' or mimeType contains 'video/')`
+  );
+  const fields = encodeURIComponent('files(id,name,mimeType,modifiedTime)');
+  const url = `https://www.googleapis.com/drive/v3/files`
+    + `?q=${q}&fields=${fields}&orderBy=name&pageSize=200&key=${CFG.apiKey}`;
+  const res  = await fetch(url);
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(data.error?.message || `Drive API ${res.status}`);
+  return data.files || [];
+}
+
+/* ═══════════════════════════════════════════════════════════
+   GOOGLE DRIVE — AUDIO FILES LIST
+   ═══════════════════════════════════════════════════════════ */
+async function driveListAudio(folderId) {
+  if (!folderId) return [];
+  const q = encodeURIComponent(
+    `'${folderId}' in parents and trashed = false and mimeType contains 'audio/'`
+  );
+  const fields = encodeURIComponent('files(id,name,mimeType,modifiedTime)');
+  const url = `https://www.googleapis.com/drive/v3/files`
+    + `?q=${q}&fields=${fields}&orderBy=name&pageSize=200&key=${CFG.apiKey}`;
+  const res  = await fetch(url);
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(data.error?.message || `Drive API ${res.status}`);
+  return (data.files || []).sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   LIVE CONFIG — polls _swscreen_config.json from Drive
+   The admin can upload this file to change settings on a
+   running screen without modifying the player URL.
+   Checks both the global folder (CFG.mf) and the location
+   folder (CFG.lf); location config overrides global.
+   ═══════════════════════════════════════════════════════════ */
+async function fetchConfigFile(folderId, cacheKey) {
+  if (!folderId) return null;
+  try {
+    const q = encodeURIComponent(
+      `'${folderId}' in parents and name = '_swscreen_config.json' and trashed = false`
+    );
+    const res  = await fetch(
+      `https://www.googleapis.com/drive/v3/files?q=${q}&fields=${
+        encodeURIComponent('files(id,modifiedTime)')}&key=${CFG.apiKey}`
+    );
+    if (!res.ok) return null;
+    const { files = [] } = await res.json();
+    if (!files.length) return null;
+
+    const fileId = files[0].id;
+    const mod    = files[0].modifiedTime;
+
+    // Use cached version if unchanged
+    const prevMod = (await IDB.get('meta', cacheKey + '_mod'))?.v;
+    if (prevMod === mod) {
+      return (await IDB.get('meta', cacheKey + '_data'))?.v || null;
+    }
+
+    const dataRes = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${CFG.apiKey}`
+    );
+    if (!dataRes.ok) return null;
+    const data = await dataRes.json();
+    await IDB.set('meta', { k: cacheKey + '_mod',  v: mod });
+    await IDB.set('meta', { k: cacheKey + '_data', v: data });
+    return data;
+  } catch (e) {
+    console.warn('[Player] Config file fetch failed:', e.message);
+    return null;
+  }
+}
+
+async function loadLiveConfig() {
+  // Global config (mf = main Silverworld Screens folder)
+  const global = await fetchConfigFile(CFG.mf, 'gcfg');
+  // Location config (lf = this location's folder) — overrides global
+  const local  = await fetchConfigFile(CFG.lf, 'lcfg');
+  const merged = Object.assign({}, global || {}, local || {});
+  if (!Object.keys(merged).length) return false; // no change
+
+  const changed = JSON.stringify(merged) !== JSON.stringify(LIVE);
+  LIVE = merged;
+
+  // Apply any config changes immediately
+  if (merged.fit) applyCssFit(merged.fit);
+  if (merged.vol !== undefined) AudioPlayer.setVol(getVol());
+  if (CFG?.clk || merged.clk) {
+    const cl = document.getElementById('clock');
+    cl.style.display = (merged.clk ?? CFG?.clk) ? 'block' : 'none';
+  }
+
+  return changed;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   FETCH BLOB WITH PROGRESS
+   ═══════════════════════════════════════════════════════════ */
+async function fetchBlob(url, onPct) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const total  = parseInt(res.headers.get('Content-Length') || '0');
+  const reader = res.body.getReader();
+  const parts  = []; let got = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    parts.push(value); got += value.length;
+    if (total && onPct) onPct(got / total);
+  }
+  return new Blob(parts);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   BUILD PLAYLIST — merges photo/ and video/ folders, sorted by name
+   ═══════════════════════════════════════════════════════════ */
+async function buildPlaylist() {
+  const [photos, videos] = await Promise.all([
+    driveList(CFG.pf),
+    driveList(CFG.vf),
+  ]);
+  const imgDur = getImgDur();
+  const vidDur = getVidDur();
+
+  const items = [
+    ...photos
+      .filter(f => f.mimeType?.startsWith('image/'))
+      .map(f => ({ id: f.id, name: f.name, type: 'image', mod: f.modifiedTime, dur: imgDur })),
+    ...videos
+      .filter(f => f.mimeType?.startsWith('video/'))
+      .map(f => ({ id: f.id, name: f.name, type: 'video', mod: f.modifiedTime, dur: vidDur })),
+  ];
+
+  // Natural sort by filename so 01_ < 02_ < 10_
+  items.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+  return items;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SYNC IMAGES TO INDEXEDDB
+   Uses Drive thumbnail URL — works CORS-free for shared files.
+   Videos are NOT pre-downloaded (played via iframe embed).
+   ═══════════════════════════════════════════════════════════ */
+async function syncImages(items) {
+  const imgs = items.filter(i => i.type === 'image');
+  if (!imgs.length) return;
+
+  showPanel('p-sync');
+  let done = 0;
+
+  for (let i = 0; i < imgs.length; i++) {
+    const item = imgs[i];
+    setSyncUI(item.name, i + 1, imgs.length);
+
+    // Skip if we already have the latest version
+    const cached = await IDB.get('blobs', item.id);
+    if (cached?.mod === item.mod) { done++; continue; }
+
+    try {
+      const blob = await fetchBlob(
+        `https://drive.google.com/thumbnail?id=${item.id}&sz=w4096`,
+        pct => {
+          const overall = (i + pct) / imgs.length * 100;
+          document.getElementById('bar-fill').style.width = overall + '%';
+        }
+      );
+      await IDB.set('blobs', { id: item.id, blob, mime: blob.type, mod: item.mod });
+    } catch (e) {
+      console.warn('[Player] Cache failed for', item.name, '—', e.message);
+      // Store null blob so we fall back to Drive URL during playback
+      await IDB.set('blobs', { id: item.id, blob: null, mime: 'image/jpeg', mod: item.mod, fallback: `https://drive.google.com/thumbnail?id=${item.id}&sz=w4096` });
+    }
+    done++;
+  }
+
+  // Remove blobs for items no longer in playlist
+  const live = new Set(imgs.map(x => x.id));
+  for (const k of await IDB.keys('blobs')) {
+    if (!live.has(k)) await IDB.del('blobs', k);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SYNC AUDIO TO INDEXEDDB
+   Downloads audio files via Drive Files API (works CORS-free
+   for publicly shared files via googleapis.com endpoint).
+   ═══════════════════════════════════════════════════════════ */
+async function syncAudio(audioFiles) {
+  if (!audioFiles.length) {
+    // Remove any stale audio blobs
+    for (const k of await IDB.keys('audio')) await IDB.del('audio', k);
+    return;
+  }
+
+  document.getElementById('sy-title').textContent = '🔊 Downloading Audio';
+  document.getElementById('sy-sub').textContent   = 'Saving audio to device — plays offline after this';
+  showPanel('p-sync');
+
+  for (let i = 0; i < audioFiles.length; i++) {
+    const f = audioFiles[i];
+    setSyncUI(f.name, i + 1, audioFiles.length);
+
+    const cached = await IDB.get('audio', f.id);
+    if (cached?.mod === f.modifiedTime) continue; // already up to date
+
+    try {
+      const blob = await fetchBlob(
+        `https://www.googleapis.com/drive/v3/files/${f.id}?alt=media&key=${CFG.apiKey}`,
+        pct => {
+          const overall = (i + pct) / audioFiles.length * 100;
+          document.getElementById('bar-fill').style.width = overall + '%';
+        }
+      );
+      await IDB.set('audio', { id: f.id, blob, name: f.name, mod: f.modifiedTime });
+    } catch (e) {
+      console.warn('[Player] Audio cache failed:', f.name, '-', e.message);
+    }
+  }
+
+  // Remove stale audio (files no longer in Drive folder)
+  const live = new Set(audioFiles.map(f => f.id));
+  for (const k of await IDB.keys('audio')) {
+    if (!live.has(k)) await IDB.del('audio', k);
+  }
+
+  // Reset sync panel title for potential subsequent image sync
+  document.getElementById('sy-title').textContent = '📥 Downloading Content';
+  document.getElementById('sy-sub').textContent   = 'Saving media to device — plays offline after this';
+}
+
+/* ═══════════════════════════════════════════════════════════
+   AUDIO PLAYER — offline background audio with queue & loop
+   ═══════════════════════════════════════════════════════════ */
+const AudioPlayer = {
+  _queue:    [],   // array of { id, name } from IDB audio store
+  _idx:      0,
+  _el:       null, // current HTMLAudioElement
+  _objUrl:   null, // current ObjectURL
+  _unlocked: false,
+  _vol:      (CFG?.vol ?? 80) / 100,
+
+  async load(audioFiles) {
+    this._queue = audioFiles;
+    this._idx   = 0;
+    if (!this._queue.length) {
+      this._stop();
+      hudAudio(false);
+      return;
+    }
+    await this._play(0);
+  },
+
+  async _play(idx) {
+    if (!this._queue.length) return;
+    this._idx = ((idx % this._queue.length) + this._queue.length) % this._queue.length;
+    const f   = this._queue[this._idx];
+
+    const cached = await IDB.get('audio', f.id);
+    if (!cached?.blob) {
+      // Blob not available yet — try next track
+      this._play(this._idx + 1);
+      return;
+    }
+
+    // Clean up previous element
+    this._stop();
+
+    const url  = URL.createObjectURL(cached.blob);
+    this._objUrl = url;
+    const el   = new Audio(url);
+    el.volume  = this._vol;
+    el.onended = () => this._play(this._idx + 1);
+    el.onerror = () => { console.warn('[Audio] Playback error, skipping'); this._play(this._idx + 1); };
+    this._el   = el;
+
+    try {
+      await el.play();
+      this._unlocked = true;
+      hudAudio(true, f.name);
+      hideAudioUnlock();
+    } catch (err) {
+      // Autoplay policy blocked — show tap-to-unlock hint
+      hudAudio(true, f.name);
+      hudAudioPaused(true);
+      showAudioUnlock();
+    }
+  },
+
+  _stop() {
+    if (this._el) {
+      this._el.onended = null;
+      this._el.onerror = null;
+      this._el.pause();
+      this._el = null;
+    }
+    if (this._objUrl) {
+      URL.revokeObjectURL(this._objUrl);
+      this._objUrl = null;
+    }
+  },
+
+  async unlock() {
+    if (!this._el) return;
+    try {
+      await this._el.play();
+      this._unlocked = true;
+      hudAudioPaused(false);
+      hideAudioUnlock();
+    } catch (e) {
+      console.warn('[Audio] Unlock failed:', e.message);
+    }
+  },
+
+  setVol(v) {
+    this._vol = Math.max(0, Math.min(1, v));
+    if (this._el) this._el.volume = this._vol;
+  },
+
+  // Called when Drive audio content changes
+  async reload(audioFiles) {
+    const wasPlaying = !!this._el && this._unlocked;
+    await this.load(audioFiles);
+    // Re-attempt autoplay if was playing before
+    if (wasPlaying && this._el) {
+      this._el.play().catch(() => {});
+    }
+  },
+};
+
+/* ── Audio HUD helpers ── */
+function hudAudio(show, trackName) {
+  const hud = document.getElementById('audio-hud');
+  if (!show) { hud.classList.remove('on'); return; }
+  hud.classList.add('on');
+  if (trackName !== undefined) {
+    // Strip common audio extensions for a cleaner display
+    document.getElementById('eq-track').textContent =
+      trackName.replace(/\.[^.]+$/, '');
+  }
+}
+function hudAudioPaused(paused) {
+  document.getElementById('audio-hud').classList.toggle('paused', paused);
+}
+function showAudioUnlock() {
+  document.getElementById('audio-unlock').classList.add('on');
+}
+function hideAudioUnlock() {
+  document.getElementById('audio-unlock').classList.remove('on');
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PLAYER
+   ═══════════════════════════════════════════════════════════ */
+const layers   = [document.getElementById('la'), document.getElementById('lb')];
+let activeL    = 0;
+let items      = [];
+let slideIdx   = 0;
+let slideTimer = null;
+let blobUrls   = {};  // fileId → ObjectURL (revoke when replaced)
+
+async function buildEl(item) {
+  if (item.type === 'image') {
+    const cached = await IDB.get('blobs', item.id);
+    const src    = cached?.blob
+      ? (() => {
+          if (blobUrls[item.id]) URL.revokeObjectURL(blobUrls[item.id]);
+          blobUrls[item.id] = URL.createObjectURL(cached.blob);
+          return blobUrls[item.id];
+        })()
+      : (cached?.fallback || `https://drive.google.com/thumbnail?id=${item.id}&sz=w4096`);
+
+    const fit = getFit();
+
+    if (fit === 'contain-blur') {
+      // ── Contain + blurred background fill ──────────────────
+      // Professional digital signage mode: full image visible,
+      // a blurred & darkened copy fills any empty bars so the
+      // screen is never black regardless of aspect ratio.
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'position:absolute;inset:0;overflow:hidden;background:#000;';
+
+      const bg = new Image();
+      bg.decoding = 'async';
+      // Scale slightly beyond 100% to eliminate blur-edge halos
+      bg.style.cssText = `
+        position:absolute; inset:-8%;
+        width:116%; height:116%;
+        object-fit:cover; object-position:center;
+        filter:blur(28px) brightness(0.45) saturate(1.2);
+        pointer-events:none;
+      `;
+      bg.src = src;
+
+      const fg = new Image();
+      fg.decoding = 'async';
+      fg.style.cssText = `
+        position:absolute; inset:0;
+        width:100%; height:100%;
+        object-fit:contain; object-position:center;
+      `;
+      fg.src = src;
+
+      wrap.appendChild(bg);
+      wrap.appendChild(fg);
+      return wrap;
+    }
+
+    // ── All other CSS object-fit modes ───────────────────────
+    const img    = new Image();
+    img.decoding = 'async';
+    img.style.cssText = `
+      width:100%; height:100%;
+      object-fit:var(--fit,cover);
+      object-position:center center;
+      display:block;
+    `;
+    img.src = src;
+    return img;
+
+  } else {
+    // ── Video via Drive preview iframe ───────────────────────
+    const wrap   = document.createElement('div');
+    wrap.className = 'vid-wrap';
+    const iframe = document.createElement('iframe');
+    iframe.src = `https://drive.google.com/file/d/${item.id}/preview?rm=minimal`;
+    iframe.allow = 'autoplay; encrypted-media';
+    iframe.setAttribute('allowfullscreen', '');
+    const cap = document.createElement('div');
+    cap.className = 'vid-cap';
+    wrap.appendChild(iframe);
+    wrap.appendChild(cap);
+    return wrap;
+  }
+}
+
+async function showSlide(idx) {
+  clearTimeout(slideTimer);
+  if (!items.length) return;
+
+  slideIdx   = ((idx % items.length) + items.length) % items.length;
+  const item = items[slideIdx];
+  const dur  = item.dur * 1000;
+
+  const nextL = 1 - activeL;
+  layers[nextL].innerHTML = '';
+  const el = await buildEl(item);
+  layers[nextL].appendChild(el);
+
+  // Crossfade
+  layers[nextL].classList.add('on');
+  layers[activeL].classList.remove('on');
+  activeL = nextL;
+
+  hideAllPanels();
+  animProg(dur);
+
+  if (item.type === 'video') {
+    // We can't detect iframe video end, so use configured duration
+    slideTimer = setTimeout(() => showSlide(slideIdx + 1), dur);
+  } else {
+    slideTimer = setTimeout(() => showSlide(slideIdx + 1), dur);
+  }
+}
+
+async function startPlayback(newItems, announce) {
+  if (!newItems.length) {
+    showError('📂', 'No content yet',
+      `No photos or videos found in the "${CFG.loc}" location. Add files to the photo/ and video/ folders in Google Drive, then wait for the next auto-refresh.`);
+    return;
+  }
+  items    = newItems;
+  slideIdx = 0;
+  await showSlide(0);
+  if (announce) toast(`▶  ${items.length} items · ${CFG.loc || ''}`, 3000);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   AUTO-REFRESH — detects content changes via Drive modifiedTime
+   ═══════════════════════════════════════════════════════════ */
+async function refresh() {
+  try {
+    // Check for admin-pushed live config changes first
+    const configChanged = await loadLiveConfig();
+    if (configChanged) toast('⚙ Settings updated');
+
+    // Check media (photos + videos)
+    const fresh   = await buildPlaylist();
+    const sig     = fresh.map(i => i.id + i.mod).join('|');
+    const prev    = await IDB.get('meta', 'sig');
+    let mediaChanged = prev?.v !== sig;
+
+    // Check audio
+    const freshAudio = CFG.af ? await driveListAudio(CFG.af) : [];
+    const audioSig   = freshAudio.map(f => f.id + f.modifiedTime).join('|');
+    const prevAudio  = await IDB.get('meta', 'audioSig');
+    const audioChanged = prevAudio?.v !== audioSig;
+
+    if (!mediaChanged && !audioChanged) return; // Nothing changed
+
+    if (mediaChanged) {
+      await syncImages(fresh);
+      await IDB.set('meta', { k: 'sig',      v: sig });
+      await IDB.set('meta', { k: 'playlist', v: fresh });
+      const wasPlaying = items.length > 0;
+      clearTimeout(slideTimer);
+      await startPlayback(fresh, false);
+      if (wasPlaying) toast('✓ Content updated');
+    }
+
+    if (audioChanged) {
+      await syncAudio(freshAudio);
+      await IDB.set('meta', { k: 'audioSig', v: audioSig });
+      await AudioPlayer.reload(freshAudio);
+      if (freshAudio.length) toast('🔊 Audio updated');
+    }
+
+  } catch (e) {
+    console.warn('[Player] Refresh failed:', e.message);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CLOCK
+   ═══════════════════════════════════════════════════════════ */
+if (CFG?.clk) {
+  const cl = document.getElementById('clock');
+  cl.style.display = 'block';
+  const tick = () => { cl.textContent = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }); };
+  tick(); setInterval(tick, 1000);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   OFFLINE INDICATOR
+   ═══════════════════════════════════════════════════════════ */
+window.addEventListener('offline', () => document.getElementById('offline-bar').classList.add('on'));
+window.addEventListener('online',  () => document.getElementById('offline-bar').classList.remove('on'));
+
+/* ═══════════════════════════════════════════════════════════
+   ORIENTATION / RESIZE — keep stage truly full-screen
+   After a rotation the browser briefly reports stale viewport
+   dimensions. We nudge the stage to the live innerWidth/Height
+   and then let CSS take over again once the browser settles.
+   ═══════════════════════════════════════════════════════════ */
+function fixViewport() {
+  const stage = document.getElementById('stage');
+  // Pin to exact pixel dimensions immediately, then clear override
+  // so the dvh/dvw values resume control after the resize settles.
+  stage.style.width  = window.innerWidth  + 'px';
+  stage.style.height = window.innerHeight + 'px';
+  clearTimeout(fixViewport._t);
+  fixViewport._t = setTimeout(() => {
+    stage.style.width  = '';
+    stage.style.height = '';
+  }, 300);
+}
+window.addEventListener('resize',            fixViewport);
+window.addEventListener('orientationchange', () => setTimeout(fixViewport, 50));
+
+/* ═══════════════════════════════════════════════════════════
+   BOOT
+   ═══════════════════════════════════════════════════════════ */
+(async function boot() {
+
+  // Validate config
+  if (!CFG?.apiKey) {
+    showError('📺', 'Screen not configured',
+      'This screen needs a player URL from the Silverworld Screens Admin panel.\nAsk your admin for the URL or QR code for this location — no other setup needed.');
+    return;
+  }
+  if (!CFG.pf && !CFG.vf) {
+    showError('📂', 'No folders assigned',
+      `The player URL for "${CFG.loc || 'this location'}" doesn't have photo or video folder IDs. Re-discover locations in the admin panel and copy a fresh URL.`);
+    return;
+  }
+
+  // Open IndexedDB
+  try { await IDB.open(); } catch (e) { console.warn('[Player] IDB:', e); }
+
+  // Request persistent storage so browser doesn't evict cached images
+  navigator.storage?.persist?.().catch(() => {});
+
+  // Load live config early (applies fit, volume, etc. before first frame)
+  await loadLiveConfig();
+
+  // Show location badge briefly
+  if (CFG.loc) {
+    const badge = document.getElementById('loc-badge');
+    badge.textContent = '📍 ' + CFG.loc;
+    badge.classList.add('on');
+    setTimeout(() => badge.classList.remove('on'), 5000);
+  }
+
+  // ── Offline-first: play from cache immediately ──────────
+  const cachedPlaylist = await IDB.get('meta', 'playlist');
+  if (cachedPlaylist?.v?.length) {
+    await startPlayback(cachedPlaylist.v, true);
+  } else {
+    showPanel('p-load');
+    setLoading(`Loading ${CFG.loc || 'content'}…`);
+  }
+
+  // ── Load cached audio immediately (offline-first) ───────
+  const cachedAudioFiles = await IDB.keys('audio');
+  if (cachedAudioFiles.length) {
+    const cachedAudios = [];
+    for (const k of cachedAudioFiles) {
+      const a = await IDB.get('audio', k);
+      if (a) cachedAudios.push(a);
+    }
+    // Sort by name for consistent ordering
+    cachedAudios.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+    AudioPlayer.load(cachedAudios); // non-blocking: autoplay may need unlock
+  }
+
+  // ── Fetch fresh content from Drive ──────────────────────
+  try {
+    // Fetch media + audio in parallel
+    const [fresh, freshAudio] = await Promise.all([
+      buildPlaylist(),
+      CFG.af ? driveListAudio(CFG.af) : Promise.resolve([]),
+    ]);
+
+    // Handle media changes
+    const sig  = fresh.map(i => i.id + i.mod).join('|');
+    const prev = await IDB.get('meta', 'sig');
+
+    if (prev?.v !== sig) {
+      await syncImages(fresh);
+      await IDB.set('meta', { k: 'sig',      v: sig });
+      await IDB.set('meta', { k: 'playlist', v: fresh });
+      clearTimeout(slideTimer);
+      await startPlayback(fresh, !cachedPlaylist?.v?.length);
+    } else if (!cachedPlaylist?.v?.length) {
+      await startPlayback(fresh, true);
+    }
+
+    // Handle audio changes
+    const audioSig  = freshAudio.map(f => f.id + f.modifiedTime).join('|');
+    const prevAudio = await IDB.get('meta', 'audioSig');
+    if (prevAudio?.v !== audioSig) {
+      await syncAudio(freshAudio);
+      await IDB.set('meta', { k: 'audioSig', v: audioSig });
+      // Reload AudioPlayer with fresh files (replaces cached list loaded above)
+      await AudioPlayer.reload(freshAudio);
+    }
+
+  } catch (err) {
+    console.warn('[Player] Initial load failed:', err.message);
+    if (!items.length) {
+      showError('⚠️', 'Could not load content',
+        `${err.message}\n\nMake sure the Google Drive folders are shared publicly (Anyone with the link → Viewer) and the API key is valid.`);
+    }
+    // If we already have cached content playing, continue quietly
+  }
+
+  // ── Auto-refresh every N minutes ────────────────────────
+  const refreshMs = Math.max(1, CFG.rfr || 5) * 60 * 1000;
+  setInterval(refresh, refreshMs);
+
+  // ── Auto fullscreen + audio unlock on first tap ─────────
+  document.addEventListener('click', () => {
+    document.documentElement.requestFullscreen?.();
+    AudioPlayer.unlock();
+  }, { once: true });
+  document.addEventListener('touchend', () => {
+    document.documentElement.requestFullscreen?.();
+    AudioPlayer.unlock();
+  }, { once: true });
+
+})();
+</script>
+</body>
+</html>
