@@ -349,16 +349,19 @@ const IDB = {
   _db: null,
   open() {
     return new Promise((ok, fail) => {
-      const r = indexedDB.open('sw_player', 2);
+      const r = indexedDB.open('sw_player', 3);
       r.onupgradeneeded = e => {
         const d = e.target.result;
         const v = e.oldVersion;
         if (v < 1) {
-          d.createObjectStore('blobs', { keyPath: 'id' });
-          d.createObjectStore('meta',  { keyPath: 'k' });
+          d.createObjectStore('blobs',  { keyPath: 'id' });
+          d.createObjectStore('meta',   { keyPath: 'k' });
         }
         if (v < 2) {
-          if (!d.objectStoreNames.contains('audio')) d.createObjectStore('audio', { keyPath: 'id' });
+          if (!d.objectStoreNames.contains('audio'))  d.createObjectStore('audio',  { keyPath: 'id' });
+        }
+        if (v < 3) {
+          if (!d.objectStoreNames.contains('videos')) d.createObjectStore('videos', { keyPath: 'id' });
         }
       };
       r.onsuccess = e => { this._db = e.target.result; ok(); };
@@ -409,9 +412,9 @@ function showError(icon, title, body) {
   showPanel('p-err');
 }
 
-function setSyncUI(fileName, done, total) {
+function setSyncUI(fileName, done, total, label = 'files') {
   document.getElementById('sy-file').textContent  = fileName;
-  document.getElementById('sy-count').textContent = `${done} of ${total} photos`;
+  document.getElementById('sy-count').textContent = `${done} of ${total} ${label}`;
   document.getElementById('bar-fill').style.width = (done / total * 100) + '%';
 }
 
@@ -595,7 +598,7 @@ async function syncImages(playlist, silent = false) {
   for (let i = 0; i < imgs.length; i++) {
     const item = imgs[i];
 
-    if (!silent) setSyncUI(item.name, i + 1, imgs.length);
+    if (!silent) setSyncUI(item.name, i + 1, imgs.length, 'photos');
 
     // Skip if we already have the latest version
     const cached = await IDB.get('blobs', item.id);
@@ -661,7 +664,7 @@ async function syncAudio(audioFiles, silent = false) {
 
   for (let i = 0; i < audioFiles.length; i++) {
     const f = audioFiles[i];
-    if (!silent) setSyncUI(f.name, i + 1, audioFiles.length);
+    if (!silent) setSyncUI(f.name, i + 1, audioFiles.length, 'audio files');
 
     const cached = await IDB.get('audio', f.id);
     if (cached?.mod === f.modifiedTime) {
@@ -696,6 +699,84 @@ async function syncAudio(audioFiles, silent = false) {
     document.getElementById('sync-hud-fill').style.width = '0%';
   } else {
     // Reset sync panel title for potential subsequent image sync
+    document.getElementById('sy-title').textContent = '📥 Downloading Content';
+    document.getElementById('sy-sub').textContent   = 'Saving media to device — plays offline after this';
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   SYNC VIDEOS TO INDEXEDDB
+   Downloads video blobs for fully offline playback.
+   Videos are served from blob:// URLs when cached so the
+   player works with zero network on Samsung TV.
+   silent=true → tiny corner HUD, screen stays live.
+   ═══════════════════════════════════════════════════════════ */
+async function syncVideos(playlist, silent = false) {
+  const vids = playlist.filter(i => i.type === 'video');
+  if (!vids.length) {
+    // Remove any stale video blobs
+    for (const k of await IDB.keys('videos')) await IDB.del('videos', k);
+    return;
+  }
+
+  if (silent) {
+    document.getElementById('sync-hud').classList.add('on');
+    document.getElementById('sync-hud-fill').style.width = '0%';
+  } else {
+    document.getElementById('sy-title').textContent = '📹 Downloading Videos';
+    document.getElementById('sy-sub').textContent   = 'Saving videos for offline playback';
+    showPanel('p-sync');
+  }
+
+  for (let i = 0; i < vids.length; i++) {
+    const item = vids[i];
+    if (!silent) setSyncUI(item.name, i + 1, vids.length, 'videos');
+
+    // Skip if cached version matches Drive modifiedTime
+    const cached = await IDB.get('videos', item.id);
+    if (cached?.mod === item.mod && cached?.blob) {
+      if (silent) document.getElementById('sync-hud-fill').style.width =
+        ((i + 1) / vids.length * 100) + '%';
+      continue;
+    }
+
+    try {
+      const url  = `https://www.googleapis.com/drive/v3/files/${item.id}?alt=media&key=${CFG.apiKey}`;
+      const blob = await fetchBlob(url, pct => {
+        const overall = (i + pct) / vids.length * 100;
+        if (silent) document.getElementById('sync-hud-fill').style.width = overall + '%';
+        else        document.getElementById('bar-fill').style.width       = overall + '%';
+      });
+      await IDB.set('videos', { id: item.id, blob, mime: blob.type, mod: item.mod });
+      console.log('[Player] Video cached:', item.name, Math.round(blob.size/1024/1024) + 'MB');
+    } catch (e) {
+      // Quota exceeded or network error — mark as attempted so we don't spin
+      if (e.name === 'QuotaExceededError' || e.message?.includes('quota')) {
+        console.warn('[Player] Storage quota exceeded — videos will stream instead of caching');
+        if (silent) document.getElementById('sync-hud').classList.remove('on');
+        break; // stop trying to cache more; streaming fallback will handle it
+      }
+      console.warn('[Player] Video cache failed:', item.name, '-', e.message);
+      // Store null blob so we know we tried (avoids repeated download attempts)
+      await IDB.set('videos', { id: item.id, blob: null, mod: item.mod });
+    }
+  }
+
+  // Remove blobs for videos no longer in playlist (free up storage)
+  const live = new Set(vids.map(x => x.id));
+  for (const k of await IDB.keys('videos')) {
+    if (!live.has(k)) {
+      // Revoke any active blob URL before deleting
+      if (videoBlobUrls[k]) { URL.revokeObjectURL(videoBlobUrls[k]); delete videoBlobUrls[k]; }
+      await IDB.del('videos', k);
+    }
+  }
+
+  if (silent) {
+    document.getElementById('sync-hud').classList.remove('on');
+    document.getElementById('sync-hud-fill').style.width = '0%';
+  } else {
+    // Reset title for subsequent syncs
     document.getElementById('sy-title').textContent = '📥 Downloading Content';
     document.getElementById('sy-sub').textContent   = 'Saving media to device — plays offline after this';
   }
@@ -829,7 +910,8 @@ let activeL    = 0;
 let items      = [];
 let slideIdx   = 0;
 let slideTimer = null;
-let blobUrls   = {};  // fileId → ObjectURL (revoke when replaced)
+let blobUrls      = {};  // imageId → ObjectURL (revoke when replaced)
+let videoBlobUrls = {};  // videoId → ObjectURL (revoke when replaced)
 
 async function buildEl(item) {
   if (item.type === 'image') {
@@ -892,28 +974,31 @@ async function buildEl(item) {
 
   } else {
     // ── Video via native <video> element ─────────────────────
-    // We stream directly from the Drive API instead of using an
-    // iframe embed. This works on Samsung TV "Internet" browser,
-    // Tizen, LG webOS, and all Chromium-based browsers — no
-    // Google Drive viewer required.
+    // Offline-first: try IndexedDB blob URL, then Drive API stream,
+    // then direct uc?export=download as last resort.
     const wrap  = document.createElement('div');
     wrap.className = 'vid-wrap';
 
     const video = document.createElement('video');
-    // Primary URL: uc?export=download bypasses Google Drive's 25 MB virus-scan
-    // warning that blocks the direct API stream for larger video files.
-    // The browser follows the redirect chain and streams the real video bytes.
-    // API URL streams directly with range-request support (best for video).
-    // Fallback to uc?export=download for large files that trip the virus-scan page.
-    const driveApiUrl     = `https://www.googleapis.com/drive/v3/files/${item.id}?alt=media&key=${CFG.apiKey}`;
-    const driveDirectUrl  = `https://drive.google.com/uc?export=download&id=${item.id}&confirm=t`;
-    video.src         = driveApiUrl;
+
+    const driveApiUrl    = `https://www.googleapis.com/drive/v3/files/${item.id}?alt=media&key=${CFG.apiKey}`;
+    const driveDirectUrl = `https://drive.google.com/uc?export=download&id=${item.id}&confirm=t`;
+
+    // ── Offline-first: use cached blob if available ──────────
+    const cachedVid = await IDB.get('videos', item.id);
+    if (cachedVid?.blob) {
+      // Revoke any previous blob URL for this video to free memory
+      if (videoBlobUrls[item.id]) URL.revokeObjectURL(videoBlobUrls[item.id]);
+      videoBlobUrls[item.id] = URL.createObjectURL(cachedVid.blob);
+      video.src = videoBlobUrls[item.id];
+    } else {
+      // Not cached yet — stream from Drive API (will cache next sync)
+      video.src = driveApiUrl;
+    }
+
     // Drive auto-generates a thumbnail for every video file.
-    // Setting poster means the browser shows this static frame immediately
-    // when the layer fades in — even if video frames haven't rendered yet.
-    // This completely eliminates the black screen during image→video and
-    // video→video transitions, especially on Samsung TV / WebKit browsers
-    // that suspend frame rendering for opacity:0 elements.
+    // poster shows immediately when the layer fades in, even while
+    // the video is still buffering — eliminates black screen on Samsung TV.
     video.poster      = `https://drive.google.com/thumbnail?id=${item.id}&sz=w1920`;
     video.muted       = true;    // muted = autoplay allowed without gesture
     video.autoplay    = false;   // showSlide controls when to play
@@ -930,21 +1015,24 @@ async function buildEl(item) {
       display: block;
     `;
 
-    // On first error, retry with the API URL before giving up
-    let _videoRetried = false;
-    video.addEventListener('error', () => {
-      if (!_videoRetried) {
-        _videoRetried = true;
-        console.warn('[Player] API URL failed, trying direct URL:', item.name);
-        video.src = driveDirectUrl;
+    // Retry chain: blob URL failed → API URL → direct URL → error card
+    let _retries = 0;
+    const _fallbacks = [driveApiUrl, driveDirectUrl];
+    video.addEventListener('error', function onVidErr() {
+      const next = _fallbacks[_retries++];
+      if (next && video.src !== next) {
+        console.warn('[Player] Video src failed, trying fallback:', next.split('?')[0]);
+        video.src = next;
         video.load();
         return;
       }
-      // Both URLs failed — show an informative message
-      wrap.style.cssText = 'display:flex;align-items:center;justify-content:center;';
+      // All sources failed — show error card
+      video.removeEventListener('error', onVidErr);
+      wrap.style.cssText = 'display:flex;align-items:center;justify-content:center;background:#000;';
       wrap.innerHTML = `<p style="color:rgba(255,255,255,.35);font-size:14px;text-align:center;">
-        ▶ ${item.name}<br><span style="font-size:11px;opacity:.6;">Unable to play — make sure the video/ folder is shared publicly in Drive</span></p>`;
-    }, { once: true });
+        ▶ ${item.name}<br>
+        <span style="font-size:11px;opacity:.6;">Unable to play · check Drive sharing is public</span></p>`;
+    });
 
     wrap.appendChild(video);
     return wrap;
@@ -1111,7 +1199,8 @@ async function refresh() {
 
       // Download new content.  If already playing, do it silently in the
       // background so the screen never goes blank.
-      await syncImages(fresh, wasPlaying);
+      await syncImages(fresh,  wasPlaying);
+      await syncVideos(fresh,  wasPlaying); // cache videos for offline playback
 
       await IDB.set('meta', { k: 'sig',      v: sig });
       await IDB.set('meta', { k: 'playlist', v: fresh });
@@ -1193,6 +1282,16 @@ window.addEventListener('orientationchange', () => setTimeout(fixViewport, 50));
    ═══════════════════════════════════════════════════════════ */
 (async function boot() {
 
+  // ── Register Service Worker for offline app-shell caching ──
+  // SW caches player.html/admin.html/index.html so they load
+  // without any network — critical for TV screens that reboot
+  // while the internet is down.
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js').catch(e =>
+      console.warn('[SW] Registration failed:', e.message)
+    );
+  }
+
   // Validate config
   if (!CFG?.apiKey) {
     showError('📺', 'Screen not configured',
@@ -1258,6 +1357,7 @@ window.addEventListener('orientationchange', () => setTimeout(fixViewport, 50));
 
     if (prev?.v !== sig) {
       await syncImages(fresh);
+      await syncVideos(fresh); // download videos for offline playback
       await IDB.set('meta', { k: 'sig',      v: sig });
       await IDB.set('meta', { k: 'playlist', v: fresh });
       clearTimeout(slideTimer);
