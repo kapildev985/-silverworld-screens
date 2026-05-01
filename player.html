@@ -219,6 +219,26 @@
       border: none;
     }
     #audio-unlock.on { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+
+    /* ── Fullscreen prompt ── */
+    #fs-prompt {
+      position: fixed; inset: 0; z-index: 200;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 16px;
+      background: rgba(0,0,0,.82); backdrop-filter: blur(6px);
+      cursor: pointer;
+      opacity: 0; pointer-events: none;
+      transition: opacity .35s;
+    }
+    #fs-prompt.on { opacity: 1; pointer-events: auto; }
+    #fs-prompt svg { width: 52px; height: 52px; opacity: .9; }
+    #fs-prompt p  {
+      color: rgba(255,255,255,.85); font-size: 17px; font-weight: 500;
+      letter-spacing: .01em; margin: 0;
+    }
+    #fs-prompt small {
+      color: rgba(255,255,255,.35); font-size: 12px;
+    }
   </style>
 </head>
 <body>
@@ -269,6 +289,15 @@
   <div id="eq-track"></div>
 </div>
 <button id="audio-unlock" onclick="AudioPlayer.unlock()">🔊 Tap to enable audio</button>
+
+<!-- Fullscreen prompt — shown on load and whenever fullscreen exits -->
+<div id="fs-prompt">
+  <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+  </svg>
+  <p>Tap to go fullscreen</p>
+  <small>Press F on keyboard · tap anywhere on TV remote</small>
+</div>
 
 <!-- Background-sync HUD — tiny corner pill, shown while silently downloading new content -->
 <div id="sync-hud">
@@ -1189,15 +1218,60 @@ window.addEventListener('orientationchange', () => setTimeout(fixViewport, 50));
   const refreshMs = Math.max(0.5, CFG.rfr || 1) * 60 * 1000; // min 30s
   setInterval(safeRefresh, refreshMs);
 
-  // ── Auto fullscreen + audio unlock on first tap ─────────
-  document.addEventListener('click', () => {
-    document.documentElement.requestFullscreen?.();
+  // ── Fullscreen system ────────────────────────────────────
+  const fsPrompt = document.getElementById('fs-prompt');
+
+  function isFullscreen() {
+    return !!(
+      document.fullscreenElement ||
+      document.webkitFullscreenElement ||
+      document.mozFullScreenElement ||
+      document.msFullscreenElement
+    );
+  }
+
+  async function enterFullscreen() {
+    const el = document.documentElement;
+    try {
+      if (el.requestFullscreen)             await el.requestFullscreen({ navigationUI: 'hide' });
+      else if (el.webkitRequestFullscreen)  el.webkitRequestFullscreen();
+      else if (el.mozRequestFullScreen)     el.mozRequestFullScreen();
+      else if (el.msRequestFullscreen)      el.msRequestFullscreen();
+    } catch(e) { /* browser blocked — prompt stays visible */ }
     AudioPlayer.unlock();
-  }, { once: true });
-  document.addEventListener('touchend', () => {
-    document.documentElement.requestFullscreen?.();
-    AudioPlayer.unlock();
-  }, { once: true });
+  }
+
+  function onFsChange() {
+    if (isFullscreen()) {
+      fsPrompt.classList.remove('on');  // fullscreen active — hide prompt
+    } else {
+      // Fullscreen exited (Esc / TV back button) — show prompt again
+      setTimeout(() => fsPrompt.classList.add('on'), 400);
+    }
+  }
+
+  // Listen for fullscreen changes (all vendor prefixes)
+  document.addEventListener('fullscreenchange',       onFsChange);
+  document.addEventListener('webkitfullscreenchange', onFsChange);
+  document.addEventListener('mozfullscreenchange',    onFsChange);
+  document.addEventListener('MSFullscreenChange',     onFsChange);
+
+  // Tap / click anywhere on the prompt → enter fullscreen
+  fsPrompt.addEventListener('click',    enterFullscreen);
+  fsPrompt.addEventListener('touchend', enterFullscreen);
+
+  // F key shortcut for desktop browsers
+  document.addEventListener('keydown', e => {
+    if (e.key === 'f' || e.key === 'F') enterFullscreen();
+  });
+
+  // Try to auto-fullscreen immediately (works on some TV browsers
+  // that don't enforce the user-gesture requirement)
+  enterFullscreen().then(() => {
+    if (!isFullscreen()) fsPrompt.classList.add('on'); // show prompt if blocked
+  }).catch(() => {
+    fsPrompt.classList.add('on'); // auto-fullscreen blocked — show prompt
+  });
 
 })();
 </script>
