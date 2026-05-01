@@ -981,8 +981,10 @@ async function buildEl(item) {
 
     const video = document.createElement('video');
 
-    const driveApiUrl    = `https://www.googleapis.com/drive/v3/files/${item.id}?alt=media&key=${CFG.apiKey}`;
-    const driveDirectUrl = `https://drive.google.com/uc?export=download&id=${item.id}&confirm=t`;
+    const driveApiUrl      = `https://www.googleapis.com/drive/v3/files/${item.id}?alt=media&key=${CFG.apiKey}`;
+    const driveDirectUrl   = `https://drive.google.com/uc?export=download&id=${item.id}&confirm=t`;
+    // Newer Google CDN endpoint — sometimes works when the classic uc URL doesn't
+    const driveContentUrl  = `https://drive.usercontent.google.com/download?id=${item.id}&export=download&authuser=0`;
 
     // ── Offline-first: use cached blob if available ──────────
     const cachedVid = await IDB.get('videos', item.id);
@@ -1024,17 +1026,17 @@ async function buildEl(item) {
       display: block;
     `;
 
-    // Fallback chain depends on the starting URL:
-    //   blob URL  → driveDirectUrl → driveApiUrl → error card
-    //   directUrl → driveApiUrl    → error card
+    // Fallback chain:
+    //   blob URL  → driveDirectUrl → driveContentUrl → driveApiUrl → error card
+    //   directUrl → driveContentUrl → driveApiUrl → error card
     const _fallbacks = _usedBlob
-      ? [driveDirectUrl, driveApiUrl]
-      : [driveApiUrl];
+      ? [driveDirectUrl, driveContentUrl, driveApiUrl]
+      : [driveContentUrl, driveApiUrl];
     let _fi = 0;
     video.addEventListener('error', function onVidErr() {
       if (_fi < _fallbacks.length) {
         const next = _fallbacks[_fi++];
-        console.warn('[Player] Video src failed, trying:', next.split('?')[0], '—', item.name);
+        console.warn('[Player] Video src failed, trying fallback #' + _fi + ':', next.split('?')[0], '—', item.name);
         video.src = next;
         video.load();
         return;
@@ -1042,14 +1044,22 @@ async function buildEl(item) {
       // All sources failed — show error card
       video.removeEventListener('error', onVidErr);
       console.error('[Player] All video URLs failed for:', item.name);
-      wrap.style.cssText = 'display:flex;align-items:center;justify-content:center;background:#000;';
-      wrap.innerHTML = `<p style="color:rgba(255,255,255,.35);font-size:14px;text-align:center;padding:20px;">
-        ▶ ${item.name}<br>
-        <span style="font-size:11px;opacity:.6;line-height:1.8;">
-          Unable to play video.<br>
-          In Google Drive: right-click file → Share →<br>
-          set to <b style="color:rgba(255,255,255,.6)">Anyone with the link</b> (Viewer)
-        </span></p>`;
+      wrap.style.cssText = 'display:flex;align-items:center;justify-content:center;background:#111;';
+      wrap.innerHTML = `
+        <div style="text-align:center;padding:32px;max-width:480px;">
+          <div style="font-size:36px;margin-bottom:16px;">🔒</div>
+          <div style="color:rgba(255,255,255,.7);font-size:15px;font-weight:500;margin-bottom:12px;">
+            Video file not accessible
+          </div>
+          <div style="color:rgba(255,255,255,.4);font-size:12px;line-height:1.9;">
+            Sharing the <em>folder</em> is not enough —<br>
+            each <strong style="color:rgba(255,255,255,.6)">video file</strong> must also be shared individually.<br><br>
+            In Google Drive:<br>
+            Right-click the video file → <strong style="color:rgba(255,255,255,.6)">Share</strong><br>
+            → General access → <strong style="color:rgba(255,255,255,.6)">Anyone with the link</strong> → Viewer<br><br>
+            <span style="opacity:.5;font-size:11px;">${item.name}</span>
+          </div>
+        </div>`;
     });
 
     wrap.appendChild(video);
