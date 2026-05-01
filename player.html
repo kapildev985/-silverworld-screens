@@ -329,7 +329,7 @@ let LIVE = {};  // overrides from _swscreen_config.json
 
 function getFit()  { return LIVE.fit  || CFG?.fit  || 'cover'; }
 function getVol()  { return (LIVE.vol  ?? CFG?.vol  ?? 80) / 100; }
-function getImgDur(){ return LIVE.img  || CFG?.img  || 10; }
+function getImgDur(){ return Math.max(20, LIVE.img  || CFG?.img  || 20); } // min 20s
 function getVidDur(){ return LIVE.vid  || CFG?.vid  || 30; }
 function getRfr()  { return LIVE.rfr  || CFG?.rfr  || 5; }
 
@@ -946,6 +946,20 @@ async function buildEl(item) {
   }
 }
 
+// Wait for all <img> elements inside el to finish loading.
+// Falls back after 4 s so a slow network never stalls the slideshow.
+function waitImagesLoaded(el) {
+  const imgs = el.tagName === 'IMG' ? [el] : [...el.querySelectorAll('img')];
+  if (!imgs.length) return Promise.resolve();
+  const each = imgs.map(img =>
+    img.complete
+      ? Promise.resolve()
+      : new Promise(res => { img.onload = res; img.onerror = res; })
+  );
+  const timeout = new Promise(res => setTimeout(res, 4000));
+  return Promise.race([Promise.all(each), timeout]);
+}
+
 async function showSlide(idx) {
   clearTimeout(slideTimer);
   if (!items.length) return;
@@ -959,7 +973,11 @@ async function showSlide(idx) {
   const el = await buildEl(item);
   layers[nextL].appendChild(el);
 
-  // Crossfade
+  // Wait for image to fully load before crossfading so the previous
+  // slide stays visible — no black frame between transitions.
+  if (item.type === 'image') await waitImagesLoaded(el);
+
+  // Crossfade — current slide stays on screen until new one is ready
   layers[nextL].classList.add('on');
   layers[activeL].classList.remove('on');
   activeL = nextL;

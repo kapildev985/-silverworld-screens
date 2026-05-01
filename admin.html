@@ -406,7 +406,8 @@
       <div class="settings-row">
         <div class="field">
           <label>Image duration (sec)</label>
-          <input id="img-dur" type="number" value="10" min="2" max="300">
+          <input id="img-dur" type="number" value="20" min="20" max="300">
+          <div class="hint" style="margin-top:4px;">Minimum 20 seconds per image.</div>
         </div>
         <div class="field">
           <label>Video duration (sec)</label>
@@ -535,7 +536,7 @@ function clearConfig() {
 // Global playback settings (duration, refresh, clock, volume)
 function getSettings() {
   return {
-    img: parseInt(document.getElementById('img-dur').value) || 10,
+    img: Math.max(20, parseInt(document.getElementById('img-dur').value) || 20),
     vid: parseInt(document.getElementById('vid-dur').value) || 30,
     rfr: parseInt(document.getElementById('rfr').value)     || 5,
     clk: document.getElementById('clk').value === '1',
