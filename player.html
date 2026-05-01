@@ -908,6 +908,13 @@ async function buildEl(item) {
     const driveApiUrl     = `https://www.googleapis.com/drive/v3/files/${item.id}?alt=media&key=${CFG.apiKey}`;
     const driveDirectUrl  = `https://drive.google.com/uc?export=download&id=${item.id}&confirm=t`;
     video.src         = driveApiUrl;
+    // Drive auto-generates a thumbnail for every video file.
+    // Setting poster means the browser shows this static frame immediately
+    // when the layer fades in — even if video frames haven't rendered yet.
+    // This completely eliminates the black screen during image→video and
+    // video→video transitions, especially on Samsung TV / WebKit browsers
+    // that suspend frame rendering for opacity:0 elements.
+    video.poster      = `https://drive.google.com/thumbnail?id=${item.id}&sz=w1920`;
     video.muted       = true;    // muted = autoplay allowed without gesture
     video.autoplay    = false;   // showSlide controls when to play
     video.preload     = 'auto';  // start buffering immediately in background
