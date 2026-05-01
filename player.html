@@ -905,10 +905,11 @@ async function buildEl(item) {
     // The browser follows the redirect chain and streams the real video bytes.
     const driveDirectUrl  = `https://drive.google.com/uc?export=download&id=${item.id}&confirm=t`;
     const driveApiUrl     = `https://www.googleapis.com/drive/v3/files/${item.id}?alt=media&key=${CFG.apiKey}`;
-    video.src = driveDirectUrl;
-    video.muted       = true;   // muted = autoplay allowed without gesture
-    video.autoplay    = true;
-    video.loop        = false;  // slideshow timer advances after duration
+    video.src         = driveDirectUrl;
+    video.muted       = true;    // muted = autoplay allowed without gesture
+    video.autoplay    = false;   // showSlide controls when to play
+    video.preload     = 'auto';  // start buffering immediately in background
+    video.loop        = false;
     video.controls    = false;
     video.playsInline = true;
     video.setAttribute('playsinline', '');
@@ -919,11 +920,6 @@ async function buildEl(item) {
       background: #000;
       display: block;
     `;
-
-    // Explicit play() for browsers that don't honour autoplay attr
-    video.addEventListener('canplay', () => {
-      video.play().catch(() => {});
-    }, { once: true });
 
     // On first error, retry with the API URL before giving up
     let _videoRetried = false;
@@ -946,56 +942,86 @@ async function buildEl(item) {
   }
 }
 
-// Wait for all <img> elements inside el to finish loading.
-// Falls back after 4 s so a slow network never stalls the slideshow.
+// Wait for all <img> inside el to load. 4 s fallback.
 function waitImagesLoaded(el) {
   const imgs = el.tagName === 'IMG' ? [el] : [...el.querySelectorAll('img')];
   if (!imgs.length) return Promise.resolve();
   const each = imgs.map(img =>
-    img.complete
-      ? Promise.resolve()
-      : new Promise(res => { img.onload = res; img.onerror = res; })
+    img.complete ? Promise.resolve()
+    : new Promise(res => { img.onload = res; img.onerror = res; })
   );
-  const timeout = new Promise(res => setTimeout(res, 4000));
-  return Promise.race([Promise.all(each), timeout]);
+  return Promise.race([Promise.all(each), new Promise(res => setTimeout(res, 4000))]);
+}
+
+// Wait until a <video> has buffered enough to start playing.
+// readyState >= 3 (HAVE_FUTURE_DATA) means it can play without immediately stalling.
+// 8 s fallback so a slow connection never freezes the show.
+function waitVideoReady(el) {
+  const vid = el.tagName === 'VIDEO' ? el : el.querySelector('video');
+  if (!vid) return Promise.resolve();
+  if (vid.readyState >= 3) return Promise.resolve();
+  return Promise.race([
+    new Promise(res => {
+      vid.addEventListener('canplaythrough', res, { once: true });
+      vid.addEventListener('canplay',        res, { once: true });
+      vid.addEventListener('error',          res, { once: true });
+    }),
+    new Promise(res => setTimeout(res, 8000))
+  ]);
 }
 
 async function showSlide(idx) {
   clearTimeout(slideTimer);
   if (!items.length) return;
 
-  slideIdx   = ((idx % items.length) + items.length) % items.length;
-  const item = items[slideIdx];
-  const dur  = item.dur * 1000;
+  slideIdx      = ((idx % items.length) + items.length) % items.length;
+  const item    = items[slideIdx];
+  const dur     = item.dur * 1000;
+  const prevL   = activeL;          // layer currently on screen
+  const nextL   = 1 - activeL;      // layer being prepared
 
-  const nextL = 1 - activeL;
+  // Pause / clear the layer we're about to reuse (not the one still showing)
+  const oldVid = layers[nextL].querySelector('video');
+  if (oldVid) { oldVid.pause(); oldVid.src = ''; }
   layers[nextL].innerHTML = '';
+
   const el = await buildEl(item);
   layers[nextL].appendChild(el);
 
-  // Wait for image to fully load before crossfading so the previous
-  // slide stays visible — no black frame between transitions.
+  // ── Wait until ready before crossfading ──────────────────
+  // The current slide (prevL) keeps playing/showing the whole time.
   if (item.type === 'image') await waitImagesLoaded(el);
+  if (item.type === 'video') await waitVideoReady(el);
 
-  // Crossfade — current slide stays on screen until new one is ready
+  // ── Crossfade ─────────────────────────────────────────────
   layers[nextL].classList.add('on');
-  layers[activeL].classList.remove('on');
+  layers[prevL].classList.remove('on');
   activeL = nextL;
 
   hideAllPanels();
-  animProg(dur);
 
-  // If it's a video, nudge play() after the layer is visible.
-  // Some browsers (Samsung Internet) don't autostart until visible.
   if (item.type === 'video') {
     const vid = layers[nextL].querySelector('video');
-    if (vid) vid.play().catch(() => {});
-  }
-
-  if (item.type === 'video') {
-    // We can't detect iframe video end, so use configured duration
-    slideTimer = setTimeout(() => showSlide(slideIdx + 1), dur);
+    if (vid) {
+      // Start playing now that it's visible
+      vid.play().catch(() => {});
+      // Advance to next slide when this video naturally ends
+      vid.addEventListener('ended', () => {
+        clearTimeout(slideTimer);
+        showSlide(slideIdx + 1);
+      }, { once: true });
+      // Safety net: if ended never fires (network stall, error),
+      // fall back to the configured video duration
+      slideTimer = setTimeout(() => showSlide(slideIdx + 1), dur);
+      animProg(dur); // progress bar uses configured duration as estimate
+    }
+    // Stop old video after fade completes (~900 ms)
+    setTimeout(() => {
+      const prev = layers[prevL].querySelector('video');
+      if (prev) { prev.pause(); prev.src = ''; }
+    }, 950);
   } else {
+    animProg(dur);
     slideTimer = setTimeout(() => showSlide(slideIdx + 1), dur);
   }
 }
