@@ -953,20 +953,28 @@ function waitImagesLoaded(el) {
   return Promise.race([Promise.all(each), new Promise(res => setTimeout(res, 4000))]);
 }
 
-// Wait until a <video> has buffered enough to start playing.
-// readyState >= 3 (HAVE_FUTURE_DATA) means it can play without immediately stalling.
-// 8 s fallback so a slow connection never freezes the show.
+// Wait until a <video> has its first frame ready.
+// Explicitly calls load() so Samsung TV / opacity-0 layers start buffering.
+// Resolves on loadeddata (first frame), canplay, or after 10 s max.
 function waitVideoReady(el) {
   const vid = el.tagName === 'VIDEO' ? el : el.querySelector('video');
   if (!vid) return Promise.resolve();
-  if (vid.readyState >= 3) return Promise.resolve();
+
+  // Force buffering even inside an invisible (opacity:0) layer —
+  // some TV browsers skip loading for off-screen elements.
+  vid.load();
+
+  if (vid.readyState >= 2) return Promise.resolve(); // already has data
+
   return Promise.race([
     new Promise(res => {
-      vid.addEventListener('canplaythrough', res, { once: true });
+      // loadeddata = first frame decoded (fastest signal that video is ready)
+      vid.addEventListener('loadeddata',     res, { once: true });
       vid.addEventListener('canplay',        res, { once: true });
+      vid.addEventListener('canplaythrough', res, { once: true });
       vid.addEventListener('error',          res, { once: true });
     }),
-    new Promise(res => setTimeout(res, 8000))
+    new Promise(res => setTimeout(res, 10_000)) // 10 s hard fallback
   ]);
 }
 
@@ -988,8 +996,16 @@ async function showSlide(idx) {
   const el = await buildEl(item);
   layers[nextL].appendChild(el);
 
+  // Kick off video buffering immediately once in the DOM —
+  // must happen before waitVideoReady so it has data to wait on.
+  if (item.type === 'video') {
+    const vid = el.querySelector('video');
+    if (vid) vid.load();
+  }
+
   // ── Wait until ready before crossfading ──────────────────
-  // The current slide (prevL) keeps playing/showing the whole time.
+  // The current slide (image or video on prevL) stays fully visible
+  // until the next one has its first frame ready — no black flash.
   if (item.type === 'image') await waitImagesLoaded(el);
   if (item.type === 'video') await waitVideoReady(el);
 
