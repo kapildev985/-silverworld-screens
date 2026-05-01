@@ -986,20 +986,29 @@ async function buildEl(item) {
 
     // ── Offline-first: use cached blob if available ──────────
     const cachedVid = await IDB.get('videos', item.id);
+    let _usedBlob = false;
     if (cachedVid?.blob) {
       // Revoke any previous blob URL for this video to free memory
       if (videoBlobUrls[item.id]) URL.revokeObjectURL(videoBlobUrls[item.id]);
       videoBlobUrls[item.id] = URL.createObjectURL(cachedVid.blob);
-      video.src = videoBlobUrls[item.id];
+      video.src  = videoBlobUrls[item.id];
+      _usedBlob  = true;
     } else {
-      // Not cached yet — stream from Drive API (will cache next sync)
-      video.src = driveApiUrl;
+      // Not cached yet — try direct download URL first (more reliable on
+      // Samsung Internet than the API stream endpoint), then API as fallback.
+      video.src = driveDirectUrl;
     }
 
     // Drive auto-generates a thumbnail for every video file.
-    // poster shows immediately when the layer fades in, even while
-    // the video is still buffering — eliminates black screen on Samsung TV.
-    video.poster      = `https://drive.google.com/thumbnail?id=${item.id}&sz=w1920`;
+    // Pre-load it in an Image element first — only set video.poster if the
+    // thumbnail is actually accessible.  This prevents the broken-image icon
+    // that appears when the file isn't publicly shared.
+    (() => {
+      const pi = new Image();
+      pi.onload = () => { video.poster = pi.src; };
+      pi.src = `https://drive.google.com/thumbnail?id=${item.id}&sz=w1920`;
+    })();
+
     video.muted       = true;    // muted = autoplay allowed without gesture
     video.autoplay    = false;   // showSlide controls when to play
     video.preload     = 'auto';  // start buffering immediately in background
@@ -1015,23 +1024,32 @@ async function buildEl(item) {
       display: block;
     `;
 
-    // Retry chain: blob URL failed → API URL → direct URL → error card
-    let _retries = 0;
-    const _fallbacks = [driveApiUrl, driveDirectUrl];
+    // Fallback chain depends on the starting URL:
+    //   blob URL  → driveDirectUrl → driveApiUrl → error card
+    //   directUrl → driveApiUrl    → error card
+    const _fallbacks = _usedBlob
+      ? [driveDirectUrl, driveApiUrl]
+      : [driveApiUrl];
+    let _fi = 0;
     video.addEventListener('error', function onVidErr() {
-      const next = _fallbacks[_retries++];
-      if (next && video.src !== next) {
-        console.warn('[Player] Video src failed, trying fallback:', next.split('?')[0]);
+      if (_fi < _fallbacks.length) {
+        const next = _fallbacks[_fi++];
+        console.warn('[Player] Video src failed, trying:', next.split('?')[0], '—', item.name);
         video.src = next;
         video.load();
         return;
       }
       // All sources failed — show error card
       video.removeEventListener('error', onVidErr);
+      console.error('[Player] All video URLs failed for:', item.name);
       wrap.style.cssText = 'display:flex;align-items:center;justify-content:center;background:#000;';
-      wrap.innerHTML = `<p style="color:rgba(255,255,255,.35);font-size:14px;text-align:center;">
+      wrap.innerHTML = `<p style="color:rgba(255,255,255,.35);font-size:14px;text-align:center;padding:20px;">
         ▶ ${item.name}<br>
-        <span style="font-size:11px;opacity:.6;">Unable to play · check Drive sharing is public</span></p>`;
+        <span style="font-size:11px;opacity:.6;line-height:1.8;">
+          Unable to play video.<br>
+          In Google Drive: right-click file → Share →<br>
+          set to <b style="color:rgba(255,255,255,.6)">Anyone with the link</b> (Viewer)
+        </span></p>`;
     });
 
     wrap.appendChild(video);
